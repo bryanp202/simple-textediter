@@ -1,16 +1,30 @@
+mod draw;
+mod cursor;
+pub mod rope;
+
+use cursor::Cursor;
 use std::{error::Error, ffi::CString, str::FromStr};
 
 use sdl3::{event::{Event, WindowEvent}, keyboard::Keycode, pixels::Color,
-    rect::Rect, render::{Canvas, TextureCreator, TextureQuery},
+    rect::Rect, render::{Canvas, FPoint, TextureCreator, TextureQuery},
     sys::{clipboard::SDL_SetClipboardText, events::SDL_WindowEvent, keyboard::{SDL_GetModState, SDL_StartTextInput, SDL_StopTextInput}, keycode::SDL_KMOD_CTRL}, ttf::{Font, FontStyle, Sdl3TtfContext},
     video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
 
-const DEFAULT_FONT_PATH: &str = "C:\\Windows\\Fonts\\NotoSansJP-VF.ttf"; //"C:\\Windows\\Fonts\\\"noto sans\".ttf";
+use crate::vector::Vector2D;
+
+const DEFAULT_FONT_PATH: &str = "C:\\Windows\\Fonts\\consola.ttf";
 const DEFAULT_FONT_SIZE: f32 = 32.0;
 const DEFAULT_FONT_STYLE: FontStyle = FontStyle::NORMAL;
 const DEFAULT_BACKGROUND_COLOR: Color = Color::BLACK;
 const DEFAULT_FONT_COLOR: Color = Color::WHITE;
-const DEFAULT_TEXT_PADDING: u32 = 32;
+const DEFAULT_TEXT_PADDING: u32 = 16;
+const DEFAULT_LINE_PADDING: u32 = 2;
+
+pub enum TextAlignment {
+    LEFT,
+    RIGHT,
+    CENTER,
+}
 
 pub struct Editor <'a> {
     // State
@@ -20,11 +34,18 @@ pub struct Editor <'a> {
     backgroud_color: Color,
     font_color: Color,
     text_padding: u32,
+    line_padding: u32,
+    alignment: TextAlignment,
+    cursor: Cursor,
 
     // Data
     font: Font<'a>,
 
     // Handlers
+    context: EditorContext,
+}
+
+pub struct EditorContext {
     sdl_context: Sdl,
     video_subsystem: VideoSubsystem,
     ttf_context: Sdl3TtfContext,
@@ -44,12 +65,13 @@ impl <'a> Editor<'a> {
         let texture_creater = canvas.texture_creator();
 
         let new_editor = Self {
-            sdl_context,
-            video_subsystem,
-            ttf_context,
-            events,
-            canvas,
-            texture_creater,
+            context : EditorContext { sdl_context,
+                video_subsystem,
+                ttf_context,
+                events,
+                canvas,
+                texture_creater,
+            },
             backgroud_color: DEFAULT_BACKGROUND_COLOR,
             font_color: DEFAULT_FONT_COLOR,
             render_text: false,
@@ -57,6 +79,9 @@ impl <'a> Editor<'a> {
             text: String::new(),
             font: default_font,
             text_padding: DEFAULT_TEXT_PADDING,
+            line_padding: DEFAULT_LINE_PADDING,
+            alignment: TextAlignment::LEFT,
+            cursor: Cursor::new(DEFAULT_FONT_SIZE)
         };
 
         Ok(new_editor)
@@ -67,7 +92,7 @@ impl <'a> Editor<'a> {
     }
 
     pub fn handle_input(&mut self) -> Result<(), Box<dyn Error>> {
-        for event in self.events.poll_iter() {
+        for event in self.context.events.poll_iter() {
             match event {
                 Event::Quit { .. } | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => self.quit = true,
                 Event::Window { win_event: WindowEvent::Resized(..), .. } | Event::Window { win_event: WindowEvent::PixelSizeChanged(..), ..} => {
@@ -78,6 +103,7 @@ impl <'a> Editor<'a> {
                     self.render_text = true;
                 },
                 Event::KeyDown { keycode: Some(Keycode::Return), .. } => {
+                    self.cursor.move_y(1);
                     self.text.push('\n');
                     self.render_text = true;
                 }
@@ -88,7 +114,7 @@ impl <'a> Editor<'a> {
                 }
                 Event::KeyDown { keycode: Some(Keycode::V), ..}
                 if unsafe { SDL_GetModState() } & SDL_KMOD_CTRL > 0 => {
-                    let clipboard_text = self.video_subsystem.clipboard().clipboard_text()?;
+                    let clipboard_text = self.context.video_subsystem.clipboard().clipboard_text()?;
                     self.text.push_str(clipboard_text.as_str());
                     self.render_text = true;
                 },
@@ -109,92 +135,57 @@ impl <'a> Editor<'a> {
         }
         self.render_text = false;
 
-        self.canvas.set_draw_color(self.backgroud_color);
-        self.canvas.clear();
+        self.context.canvas.set_draw_color(self.backgroud_color);
+        self.context.canvas.clear();
 
-        for (line_number, line_text) in self.text.lines().enumerate() {
-            let text_to_render = if line_text.len() == 0 { " " } else { line_text };
+        let mut start_y = self.text_padding;
+        let (screen_w, _) = self.context.canvas.window().size();
+
+        for line_text in self.text.lines() {
+            let trimmed_text = line_text.trim();
+            let text_to_render = if trimmed_text.len() == 0 { " " } else { trimmed_text };
 
             let surface = self
                 .font
                 .render(text_to_render)
-                .blended(self.font_color)?;
+                .blended(self.font_color)
+                .map_err(|err| format!("On line: {:?}: {}", text_to_render, err))?;
             let texture = self
-                .texture_creater
+                .context.texture_creater
                 .create_texture_from_surface(&surface)?;
 
             let TextureQuery {width, height, .. } = texture.query();
 
-            let target = self.text_rect_line(width, height, line_number);
-            self.canvas.copy(&texture, None, Some(target.into()))?;
+            let target = draw::text_target_aligned(&self.alignment, self.text_padding, start_y, width, height, screen_w);
+            self.context.canvas.copy(&texture, None, Some(target.into()))?;
+
+            start_y += height + self.line_padding;
         }
-        self.canvas.present();
+
+        self.cursor.draw(&mut self.context.canvas, self.text_padding, self.line_padding)?;
+
+        self.context.canvas.present();
 
         Ok(())
     }
 
+    pub fn update(&mut self) {
+        if self.cursor.update() {
+            self.render_text = true;
+        }
+    }
+
     pub fn close(self) {
-        unsafe {SDL_StopTextInput(self.canvas.window().raw()); }
+        unsafe {SDL_StopTextInput(self.context.canvas.window().raw()); }
     }
 }
 
 impl <'a> Editor<'a> {
     fn load_font(&mut self, font_path: &str, point_size: f32, style: FontStyle) -> Result<(), Box<dyn Error>> {
         self.font = self
-            .ttf_context
+            .context.ttf_context
             .load_font(font_path, point_size)?;
         self.font.set_style(style);
         Ok(())
-    }
-
-    fn scaled_centered_text_rect(&self, text_width: u32, text_height: u32) -> Rect {
-        let (window_width, window_height) = self.canvas.window().size();
-        let padded_width = window_width - self.text_padding;
-        let padded_height = window_height - self.text_padding;
-
-        let wr = text_width as f32 / padded_width as f32;
-        let hr = text_height as f32 / padded_height as f32;
-
-        let (w, h) = if wr > 1f32 || hr > 1f32 {
-            if wr > hr {
-                let h = (text_height as f32 / wr) as i32;
-                (padded_width as i32, h)
-            } else {
-                let w = (text_width as f32 / hr) as i32;
-                (w, padded_height as i32)
-            }
-        } else {
-            (text_width as i32, text_height as i32)
-        };
-
-        let cx = (window_width as i32 - w) / 2;
-        let cy = (window_height as i32 - h) / 2;
-        Rect::new(cx as i32, cy as i32, w as u32, h as u32)
-    }
-
-    fn text_rect_line(&self, text_width: u32, text_height: u32, line_number: usize) -> Rect {
-        let (window_width, window_height) = self.canvas.window().size();
-        let padded_width = window_width - self.text_padding;
-        let padded_height = window_height - self.text_padding;
-
-        let wr = text_width as f32 / padded_width as f32;
-        let hr = text_height as f32 / padded_height as f32;
-
-        let (w, h) = if wr > 1f32 || hr > 1f32 {
-            if wr > hr {
-                let h = (text_height as f32 / wr) as i32;
-                (padded_width as i32, h)
-            } else {
-                let w = (text_width as f32 / hr) as i32;
-                (w, padded_height as i32)
-            }
-        } else {
-            (text_width as i32, text_height as i32)
-        };
-
-        let line_number = line_number as i32;
-        let cx = (window_width as i32 - w) / 2;
-        let cy = (window_height as i32 - h) / 10 * line_number;
-        Rect::new(cx as i32, cy as i32, w as u32, h as u32)
     }
 }

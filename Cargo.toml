@@ -3,6 +3,10 @@ name = "text_editor"
 version = "0.1.0"
 edition = "2024"
 
+[dev-dependencies]
+rand = "0.8"
+sdl3 = { version = "*", features = [ "build-from-source", "ttf" ] }
+
 [dependencies]
 sdl3-src = { version = "3.1.10-prerelease-0" } 
-sdl3 = { version = "*", features = [ "build-from-source", "ttf" ] }
+sdl3 = { version = "*", features = [ "build-from-source-static", "ttf" ] }
