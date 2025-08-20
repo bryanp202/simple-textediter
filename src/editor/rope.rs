@@ -23,8 +23,12 @@ impl Rope {
         Rope::Branch { height, weight, line, left, right }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item=char> {
+    pub fn chars(&self) -> RopeIterator {
         RopeIterator::new(self)
+    }
+
+    pub fn lines(&self) -> RopeLineIterator {
+        RopeLineIterator::new(self)
     }
 
     pub fn len(&self) -> usize {
@@ -50,8 +54,8 @@ impl Rope {
         )
     }
 
-    pub fn delete(self, index: usize, len: usize) -> Self {
-        let (result, _) = self._delete(index, len);
+    pub fn remove(self, index: usize, len: usize) -> Self {
+        let (result, _) = self._remove(index, len);
         result.map_or_else(Rope::new, |x| *x)
     }
 }
@@ -76,11 +80,7 @@ impl Rope {
             panic!("Out of bounds index: Leaf of len {}, Index {}", text_len, index);
         }
         if text_len + insert_text_len <= Self::MAX_NODE_INSERT_SIZE {
-            let char_index= match index {
-                i if i == text_len  => text.len(),
-                0 => 0,
-                _ => text.char_indices().nth(index).expect("Should be impossible").0
-            };
+            let char_index= Self::get_char_index(&text, text_len, index);
             text.insert_str(char_index, insert_text);
             Rope::Leaf(text)
         } else {
@@ -179,22 +179,22 @@ impl Rope {
         }
     }
 
-    fn _delete(self, index: usize, delete_len: usize) -> (Option<Box<Self>>, usize) {
+    fn _remove(self, index: usize, delete_len: usize) -> (Option<Box<Self>>, usize) {
         match self {
-            Rope::Leaf(text) => Self::_delete_leaf(index, delete_len, text),
+            Rope::Leaf(text) => Self::_remove_leaf(index, delete_len, text),
             Rope::Branch {
                 height,
                 weight,
                 line,
                 left,
                 right
-            } => Self::_delete_branch(index, delete_len, height, weight, line, left, right),
+            } => Self::_remove_branch(index, delete_len, height, weight, line, left, right),
         }
     }
 
-    fn _delete_leaf(index: usize, delete_len: usize, text: String) -> (Option<Box<Self>>, usize) {
+    fn _remove_leaf(index: usize, delete_len: usize, text: String) -> (Option<Box<Self>>, usize) {
         let text_len = text.chars().count();
-        if index > text_len {
+        if index >= text_len {
             panic!("Out of bounds index: Leaf of len {}, Index {}", text_len, index);
         }
         let len_after_index = text_len - index;
@@ -211,23 +211,20 @@ impl Rope {
                 new_str.extend(char_iter.skip(delete_len));
                 (Some(Box::new(Rope::Leaf(new_str))), 0)
             },
-            Ordering::Less => {
-                if index == 0 {
-                    (None, delete_len - text_len)
-                } else {
-                    let mut char_iter = text.chars();
-                    let mut new_str = String::with_capacity(text_len - delete_len);
-                    new_str.extend(char_iter.by_ref().take(index));
-                    new_str.extend(char_iter.skip(delete_len));
-                    (Some(Box::new(Rope::Leaf(new_str))), delete_len - len_after_index)
-                }
+            Ordering::Less => if index == 0 {
+                (None, delete_len - text_len)
+            } else {
+                let mut char_iter = text.chars();
+                let mut new_str = String::with_capacity(index);
+                new_str.extend(char_iter.by_ref().take(index));
+                (Some(Box::new(Rope::Leaf(new_str))), delete_len - len_after_index)
             }
         }
     }
 
-    fn _delete_branch(index: usize, delete_len: usize, height: usize, weight: usize, line: usize, left: Box<Self>, right: Box<Self>) -> (Option<Box<Self>>, usize) {
-        if index <= weight {
-            match left._delete(index, delete_len) {
+    fn _remove_branch(index: usize, delete_len: usize, height: usize, weight: usize, line: usize, left: Box<Self>, right: Box<Self>) -> (Option<Box<Self>>, usize) {
+        if index < weight {
+            match left._remove(index, delete_len) {
                 (Some(left_branch), 0) => (
                     Some(Box::new(
                         Rope::new_branch(
@@ -241,8 +238,8 @@ impl Rope {
                     0,
                 ),
                 (Some(left_branch), remaining_del) => {
-                    match right._delete(0, remaining_del) {
-                        (Some(right_branch), remaining_del_right) => (
+                    match right._remove(0, remaining_del) {
+                        (Some(right_branch), remaining_del_len) => (
                             Some(Box::new(Rope::new_branch(
                                 left_branch.height() + 1,
                                 left_branch.weight(),
@@ -250,16 +247,16 @@ impl Rope {
                                 left_branch,
                                 right_branch,
                             ))),
-                            remaining_del_right,
+                            remaining_del_len,
                         ),
-                        _ => (Some(left_branch), remaining_del),
+                        (_, remaining_del_len) => (Some(left_branch), remaining_del_len),
                     }
                 },
                 (None, 0) => (Some(right), 0),
-                (None, remaining_del) => right._delete(0, remaining_del),
+                (None, remaining_del) => right._remove(0, remaining_del),
             }
         } else {
-            match right._delete(index - weight, delete_len) {
+            match right._remove(index - weight, delete_len) {
                 (Some(right_branch), remaining_del_len) => (
                     Some(Box::new(Self::new_branch(
                         height,
@@ -369,6 +366,14 @@ impl Rope {
         text.chars().filter(|&c| c == '\n').count()
     }
 
+    fn get_char_index(text: &str, text_len: usize, index: usize) -> usize {
+        match index {
+            i if i == text_len  => text.len(),
+            0 => 0,
+            _ => text.char_indices().nth(index).expect("Should be impossible").0
+        }
+    }
+
     fn as_str(&self, as_str: &mut String, tabs: usize) {
         match self {
             Rope::Branch { height, weight, line, left, right } => {
@@ -464,6 +469,118 @@ impl <'a> Iterator for RopeIterator<'a> {
     }
 }
 
+pub struct RopeLineIterator<'a> {
+    stack: Vec<&'a Rope>,
+    current_leaf: Option<(&'a String, usize)>,
+}
+
+impl <'a> RopeLineIterator<'a> {
+    fn new(root: &'a Rope) -> Self {
+        let mut stack = Vec::new();
+        let mut node = root;
+
+        while let Rope::Branch { left, .. } = node {
+            stack.push(node);
+            node = left;
+        }
+        stack.push(node);
+
+        Self {
+            stack,
+            current_leaf: None,
+        }
+    }
+    
+    fn push_left(&mut self, mut node: &'a Rope) {
+        while let Rope::Branch { left, .. } = node {
+            self.stack.push(node);
+            node = left;
+        }
+        self.stack.push(node);
+    }
+}
+
+impl <'a> Iterator for RopeLineIterator<'a> {
+    type Item = String;
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut line_str = String::new();
+        loop {
+            while let Some((text, ref mut index)) = self.current_leaf {
+                if *index < text.len() {
+                    let ch = text[*index..].chars().next()?;
+                    *index += ch.len_utf8();
+                    if ch == '\n' {
+                        if let Some('\r') = text[*index..].chars().next() {
+                            *index += '\r'.len_utf8();
+                        }
+                        return Some(line_str);
+                    } else {
+                        line_str.push(ch);
+                    }
+                } else {
+                    self.current_leaf = None;
+                }
+            }
+
+            loop {
+                let node = self.stack.pop()?;
+                match node {
+                    Rope::Leaf(text) => {
+                        self.current_leaf = Some((text, 0));
+                        break;
+                    },
+                    Rope::Branch { right, .. } => self.push_left(right),
+                }
+            }
+        }
+    }
+
+    fn nth(&mut self, mut n: usize) -> Option<Self::Item> {
+        loop {
+            if let Some((text, ref mut index)) = self.current_leaf {
+                if *index < text.len() {
+                    let nth_newline = text[*index..].char_indices()
+                        .filter(|&(_, c)| c == '\n')
+                        .scan((n, 0), |(acc, _), (index, _)| { *acc -= 1; Some((*acc, index)) })
+                        .take(n)
+                        .last();
+                    if let Some((new_n, new_index)) = nth_newline {
+                        *index = new_index + '\n'.len_utf8();
+                        if new_n == 0 {
+                            if let Some('\r') = text[*index..].chars().next() {
+                                *index += '\r'.len_utf8();
+                            }
+                            break;
+                        }
+                        n = new_n;
+                    }
+                }
+            }
+
+            loop {
+                let node = self.stack.pop()?;
+                if let Some(Rope::Branch { line, .. }) = self.stack.last() {
+                    if *line < n {
+                        continue;
+                    }
+                }
+                match node {
+                    Rope::Leaf(text) => {
+                        self.current_leaf = Some((text, 0));
+                        break;
+                    },
+                    Rope::Branch { right, line, .. } => {
+                        n -= line;
+                        self.push_left(right);
+                    }
+                }
+            }
+        }
+
+        self.next()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rand::Rng;
@@ -471,13 +588,13 @@ mod tests {
 
     #[test]
     fn new_test() {
-        let new_rope: String = Rope::new().iter().collect();
+        let new_rope: String = Rope::new().chars().collect();
         assert_eq!(new_rope, "");
     }
 
     #[test]
     fn empty_insert_test() {
-        let new_rope: String = Rope::new().insert(0, "Hello, world!").iter().collect();
+        let new_rope: String = Rope::new().insert(0, "Hello, world!").chars().collect();
         assert_eq!(new_rope, "Hello, world!");
     }
 
@@ -486,7 +603,7 @@ mod tests {
         let new_rope: String = Rope::new()
             .insert(0, "Helloworld!")
             .insert(5, ", ")
-            .iter().collect();
+            .chars().collect();
         assert_eq!(new_rope, "Hello, world!");
     }
 
@@ -499,7 +616,7 @@ mod tests {
             .insert(7, "0")
             .insert(2, "0")
             .insert(9, "0");
-        assert_eq!(new_rope.iter().collect::<String>(), "0H0ello,00 world!");
+        assert_eq!(new_rope.chars().collect::<String>(), "0H0ello,00 world!");
         assert_eq!(new_rope.height(), 0)
     }
 
@@ -520,7 +637,7 @@ mod tests {
                     let rope_len = rope.len();
                     rope.insert(rope_len, word)
                 })
-                .iter()
+                .chars()
                 .collect();
 
             assert_eq!(correct_output, rope_output);
@@ -552,7 +669,7 @@ mod tests {
                     let rope_len = rope.len() as f64;
                     rope.insert((rope_len * float) as usize, &word)
                 })
-                .iter()
+                .chars()
                 .collect();
 
             assert_eq!(correct_output.len(), rope_output.len());
@@ -580,7 +697,7 @@ mod tests {
         assert_eq!(rope.len(), 11);
         assert_eq!(rope.line_count(), 4);
         assert_eq!(rope.weight(), 4);
-        assert_eq!(rope.iter().collect::<String>(), String::from("TES\nt\n\nxin\n"));
+        assert_eq!(rope.chars().collect::<String>(), String::from("TES\nt\n\nxin\n"));
 
         match &rope {
             Rope::Branch { left, right, .. } => { 
@@ -588,13 +705,13 @@ mod tests {
                 assert_eq!(left.len(), 4);
                 assert_eq!(left.line_count(), 1);
                 assert_eq!(left.weight(), 4);
-                assert_eq!(left.iter().collect::<String>(), String::from("TES\n"));
+                assert_eq!(left.chars().collect::<String>(), String::from("TES\n"));
 
                 assert_eq!(right.height(), 1);
                 assert_eq!(right.len(), 7);
                 assert_eq!(right.line_count(), 3);
                 assert_eq!(right.weight(), 3);
-                assert_eq!(right.iter().collect::<String>(), String::from("t\n\nxin\n"));
+                assert_eq!(right.chars().collect::<String>(), String::from("t\n\nxin\n"));
             }
             _ => assert!(false),
         }
@@ -621,7 +738,7 @@ mod tests {
         assert_eq!(rope.len(), 11);
         assert_eq!(rope.line_count(), 3);
         assert_eq!(rope.weight(), 7);
-        assert_eq!(rope.iter().collect::<String>(), String::from("TES\nts\nxin\n"));
+        assert_eq!(rope.chars().collect::<String>(), String::from("TES\nts\nxin\n"));
 
         match &rope {
             Rope::Branch { left, right, .. } => {
@@ -629,9 +746,9 @@ mod tests {
                 assert_eq!(right.len(), 4);
                 assert_eq!(right.line_count(), 1);
                 assert_eq!(right.weight(), 4);
-                assert_eq!(right.iter().collect::<String>(), String::from("xin\n"));
+                assert_eq!(right.chars().collect::<String>(), String::from("xin\n"));
 
-                assert_eq!(left.iter().collect::<String>(), String::from("TES\nts\n"));
+                assert_eq!(left.chars().collect::<String>(), String::from("TES\nts\n"));
                 assert_eq!(left.height(), 1);
                 assert_eq!(left.line_count(), 2);
                 assert_eq!(left.weight(), 4);
@@ -660,10 +777,10 @@ mod tests {
         let expected_len = rope.len();
         let expected_weight = rope.weight();
         let expected_lines = rope.line_count();
-        let expected_str: String = rope.iter().collect();
+        let expected_str: String = rope.chars().collect();
         let rope = rope.rotate_right().rotate_left();
 
-        assert_eq!(rope.iter().collect::<String>(), expected_str);
+        assert_eq!(rope.chars().collect::<String>(), expected_str);
         assert_eq!(rope.height(), expected_height);
         assert_eq!(rope.weight(), expected_weight);
         assert_eq!(rope.len(), expected_len);
@@ -688,11 +805,11 @@ mod tests {
         let expected_height = rope.height();
         let expected_len = rope.len();
         let expected_weight = rope.weight();
-        let expected_str: String = rope.iter().collect();
+        let expected_str: String = rope.chars().collect();
         let expected_lines = rope.line_count();
         let rope = rope.rotate_left().rotate_right();
 
-        assert_eq!(rope.iter().collect::<String>(), expected_str);
+        assert_eq!(rope.chars().collect::<String>(), expected_str);
         assert_eq!(rope.height(), expected_height);
         assert_eq!(rope.weight(), expected_weight);
         assert_eq!(rope.len(), expected_len);
@@ -705,7 +822,7 @@ mod tests {
         let rope = rope.insert(0, "爆発しませんように");
         let rope = rope.insert(4, "何をしていますか？");
 
-        assert_eq!(rope.iter().collect::<String>(), "爆発しま何をしていますか？せんように");
+        assert_eq!(rope.chars().collect::<String>(), "爆発しま何をしていますか？せんように");
     }
 
     #[test]
@@ -715,22 +832,22 @@ mod tests {
         let rope = rope.insert(4, "何をしていますか？");
         let rope = rope.insert(7, "hElLo!");
 
-        assert_eq!(rope.iter().collect::<String>(), "爆発しま何をしhElLo!ていますか？せんように");
+        assert_eq!(rope.chars().collect::<String>(), "爆発しま何をしhElLo!ていますか？せんように");
     }
 
     #[test]
     fn remove_test() {
         let mut rope = Rope::new();
         rope = rope.insert(0, "This is not cool!");
-        rope = rope.delete(8, 4);
-        assert_eq!(rope.iter().collect::<String>(), "This is cool!");
+        rope = rope.remove(8, 4);
+        assert_eq!(rope.chars().collect::<String>(), "This is cool!");
     }
 
     #[test]
     fn remove_fuzz_test() {
         let mut rng = rand::thread_rng();
         let word_len = 30;
-        let word_count = 10_000;
+        let word_count = 100_000;
         for _ in 0..100 {
             let mut words: Vec<String> = (0..word_count)
                 .map(|_| (0..word_len).map(|_| rng.sample(rand::distributions::Alphanumeric) as char).collect())
@@ -746,13 +863,13 @@ mod tests {
             });
             
             rope = rope.insert(100, &word_to_add_remove);
-            rope = rope.delete(100, word_to_add_remove_char_count);
-            assert_eq!(rope.iter().collect::<String>(), correct_output);
+            rope = rope.remove(100, word_to_add_remove_char_count);
+            assert_eq!(rope.chars().collect::<String>(), correct_output);
         }
     }
 
     #[test]
-    fn delete_random_fuzz_test() {
+    fn remove_random_fuzz_test() {
         let mut rng = rand::thread_rng();
         let word_len = 30;
         let word_count = 10_000;
@@ -764,9 +881,9 @@ mod tests {
                 .map(|_| { (0..word_len).map(|_| rng.sample(rand::distributions::Alphanumeric) as char).collect()})
                 .collect();
 
-            let insert_delete_ratio = random_floats.pop().unwrap();
-            let insert_delete_word = words.pop().unwrap();
-            let insert_delete_word_char_count = insert_delete_word.chars().count();
+            let insert_remove_ratio = random_floats.pop().unwrap();
+            let insert_remove_word = words.pop().unwrap();
+            let insert_remove_word_char_count = insert_remove_word.chars().count();
 
             let correct_output: String = random_floats.iter()
                 .zip(words.iter())
@@ -783,11 +900,22 @@ mod tests {
                     rope.insert((rope_len * float) as usize, &word)
                 }
             );
-            let insert_index = (rope.len() as f64 * insert_delete_ratio) as usize;
-            rope = rope.insert(insert_index, &insert_delete_word);
-            rope = rope.delete(insert_index, insert_delete_word_char_count);
+            let insert_index = (rope.len() as f64 * insert_remove_ratio) as usize;
+            rope = rope.insert(insert_index, &insert_remove_word);
+            rope = rope.remove(insert_index, insert_remove_word_char_count);
             
-            assert_eq!(rope.iter().collect::<String>(), correct_output);
+            assert_eq!(rope.chars().collect::<String>(), correct_output);
         }
+    }
+
+    #[test]
+    fn lines_iter_test() {
+        let rope = Rope::new().insert(0, "Hello!\n\rHow are you?\nI hope you are\r good!\n");
+        assert_eq!(rope.chars().collect::<String>(), "Hello!\n\rHow are you?\nI hope you are\r good!\n");
+        let mut rope_lines_iter = rope.lines();
+        assert_eq!(rope_lines_iter.next(), Some(String::from("Hello!")));
+        assert_eq!(rope_lines_iter.next(), Some(String::from("How are you?")));
+        assert_eq!(rope_lines_iter.next(), Some(String::from("I hope you are\r good!")));
+        assert_eq!(rope_lines_iter.next(), None);
     }
 }
