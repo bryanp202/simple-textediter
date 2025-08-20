@@ -13,50 +13,16 @@ use crate::editor::rope::Rope;
 pub fn main() {
     let start = std::time::Instant::now();
     let mut rope = Rope::new();
-    // rope = rope.insert(0, "Hello!");
-    // rope = rope.insert(2, "Coolio");
-    // rope = rope.insert(6, "Wowza\n");
-    // rope = rope.insert(4, "Kongo\n");
-    // rope = rope.insert(10, "TESTING\n");
-    rope = rope.insert(0, "0");
-    rope = rope.insert(0, "1");
-    rope = rope.insert(0, "2");
-    rope = rope.insert(0, "3");
-    rope = rope.insert(0, "4");
-    rope = rope.insert(0, "5");
-    rope = rope.insert(4, "6");
-    rope = rope.insert(3, "7");
-    rope = rope.insert(0, "8");
-    rope = rope.insert(0, "9");
-    rope = rope.insert(9, "X");
-    rope = rope.insert(9, "X");
-    rope = rope.insert(9, "8");
-    rope = rope.insert(2, "Hello world and welcome to my home!");
-    //rope = rope.insert(2, "Hello world and welcome to my home!");
-    //rope = rope.insert(2, "Hello world and welcome to my home!");
-    //rope = rope.insert(2, "Hello world and welcome to my home!");
-    //rope = rope.insert(2, "Hello world and welcome to my home!");
-    //rope = rope.insert(2, "Hello world and welcome to my home!");
-    //rope = rope.insert(2, "Hello world and welcome to my home!");
-    //rope = rope.insert(2, "Hello world and welcome to my home!");
-    //rope = rope.insert(2, "Hello world and welcome to my home!");
-    //rope = rope.insert(2, "Hello world and welcome to my home!");
+    rope = rope.insert(0, "HELLO AND WELCOME TO THE SHOW MY FRIEND");
 
-    rope = rope.insert(2, "Hello world and welcome to my home!");
-    for _ in 0..31_000_000 {
-        rope = rope.insert(50, "abc");
+    for _ in 0..1_000_000 {
+        let rope_len = rope.len();
+        rope = rope.insert(rope_len, "H");
     }
     
     let dt = start.elapsed();
-    println!("Time to run: {:?}, average: {}", dt, dt.as_nanos()as f64/31_000_000.0);//\nRope:\n{:?}", dt, rope.chars().collect::<String>());
+    println!("Time to run: {:?}, average: {}", dt, dt.as_nanos()as f64/1_000_000.0);//\nRope:\n{:?}", dt, rope.chars().collect::<String>());
     //println!("{:?}", rope);
-
-    let start = std::time::Instant::now();
-    rope = rope.insert(50, "Hello world and welcome to my home!");
-    println!("Time to insert single: {:?}", start.elapsed());
-    println!("Height: {}, len: {}", rope.height(), rope.len());
-
-    //println!("Rope: {:?}", rope);
     //run();    
 }
 
