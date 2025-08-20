@@ -18,17 +18,24 @@ pub fn main() {
 
     for i in 0..30_000 {
         let rope_len = rope.len();
-        rope = rope.insert(rope_len, format!("What is this: {}\n\r", i).as_str());
+        rope = rope.insert(rope_len, format!("What is th\ris: {}\n\r", i).as_str());
     }
     
     let dt = start.elapsed();
     println!("Time to run: {:?}, average: {}", dt, dt.as_nanos()as f64/1_000_000.0);//\nRope:\n{:?}", dt, rope.chars().collect::<String>());
     //println!("{:?}", rope.chars().collect::<String>());
     let skip_start = std::time::Instant::now();
-    let skipped = rope.lines().skip(29_999).next();
+    let skipped1 = rope.lines().skip(29_999).next();
+    let skipped2 = rope.lines().skip(30_000).next();
     let time_to_skip = skip_start.elapsed();
-    println!("Skipped: {:?}, Time to skip: {:?}", skipped, time_to_skip);
+    println!("Skipped1: {:?}, skipped2: {:?}, Time to skip: {:?}", skipped1, skipped2, time_to_skip);
     println!("Total lines: {}", rope.line_count());
+    println!("Total lines: {}", rope.lines().count());
+
+    let bad_skip_start = std::time::Instant::now();
+    let skipped1 = rope.chars().filter(|&c| c == '\n').skip(30_000).next();
+    let time_to_bad_skip = bad_skip_start.elapsed();
+    println!("Bad skip: {:?}, time: {:?}", skipped1, time_to_bad_skip);
 
     //run();    
 }

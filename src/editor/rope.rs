@@ -39,10 +39,7 @@ impl Rope {
     }
 
     pub fn line_count(&self) -> usize {
-        match self {
-            Rope::Branch { line, right, .. } => *line + right.line_count(),
-            Rope::Leaf(text) => Self::get_line_count(&text),
-        }
+        self._line_count() + 1
     }
 
     pub fn insert(self, index: usize, insert_text: &str) -> Self {
@@ -230,7 +227,7 @@ impl Rope {
                         Rope::new_branch(
                             left_branch.height() + 1,
                             left_branch.weight(),
-                            left_branch.line_count(),
+                            left_branch._line_count(),
                             left_branch,
                             right,
                         )
@@ -243,7 +240,7 @@ impl Rope {
                             Some(Box::new(Rope::new_branch(
                                 left_branch.height() + 1,
                                 left_branch.weight(),
-                                left_branch.line_count(),
+                                left_branch._line_count(),
                                 left_branch,
                                 right_branch,
                             ))),
@@ -362,6 +359,13 @@ impl Rope {
         }
     }
 
+    fn _line_count(&self) -> usize {
+        match self {
+            Rope::Branch { line, right, .. } => *line + right._line_count(),
+            Rope::Leaf(text) => Self::get_line_count(&text),
+        }
+    }
+
     fn get_line_count(text: &str) -> usize {
         text.chars().filter(|&c| c == '\n').count()
     }
@@ -417,19 +421,12 @@ pub struct RopeIterator<'a> {
 
 impl <'a> RopeIterator<'a> {
     fn new(root: &'a Rope) -> Self {
-        let mut stack = Vec::new();
-        let mut node = root;
-
-        while let Rope::Branch { left, .. } = node {
-            stack.push(node);
-            node = left;
-        }
-        stack.push(node);
-
-        Self {
-            stack,
+        let mut new_iter = Self {
+            stack: Vec::new(),
             current_leaf: None,
-        }
+        };
+        new_iter.push_left(root);
+        new_iter
     }
     
     fn push_left(&mut self, mut node: &'a Rope) {
@@ -472,23 +469,18 @@ impl <'a> Iterator for RopeIterator<'a> {
 pub struct RopeLineIterator<'a> {
     stack: Vec<&'a Rope>,
     current_leaf: Option<(&'a String, usize)>,
+    finished: bool,
 }
 
 impl <'a> RopeLineIterator<'a> {
     fn new(root: &'a Rope) -> Self {
-        let mut stack = Vec::new();
-        let mut node = root;
-
-        while let Rope::Branch { left, .. } = node {
-            stack.push(node);
-            node = left;
-        }
-        stack.push(node);
-
-        Self {
-            stack,
+        let mut new_iter = Self {
+            stack: Vec::new(),
             current_leaf: None,
-        }
+            finished: false,
+        };
+        new_iter.push_left(root);
+        new_iter
     }
     
     fn push_left(&mut self, mut node: &'a Rope) {
@@ -523,7 +515,14 @@ impl <'a> Iterator for RopeLineIterator<'a> {
             }
 
             loop {
-                let node = self.stack.pop()?;
+                let Some(node) = self.stack.pop() else {
+                    if self.finished {
+                        return None;
+                    } else {
+                        self.finished = true;
+                        return Some(line_str);
+                    }
+                };
                 match node {
                     Rope::Leaf(text) => {
                         self.current_leaf = Some((text, 0));
@@ -695,7 +694,7 @@ mod tests {
         let rope = rope.rotate_right();
         assert_eq!(rope.height(), 2);
         assert_eq!(rope.len(), 11);
-        assert_eq!(rope.line_count(), 4);
+        assert_eq!(rope.line_count(), 5);
         assert_eq!(rope.weight(), 4);
         assert_eq!(rope.chars().collect::<String>(), String::from("TES\nt\n\nxin\n"));
 
@@ -703,13 +702,13 @@ mod tests {
             Rope::Branch { left, right, .. } => { 
                 assert_eq!(left.height(), 0);
                 assert_eq!(left.len(), 4);
-                assert_eq!(left.line_count(), 1);
+                assert_eq!(left._line_count(), 1);
                 assert_eq!(left.weight(), 4);
                 assert_eq!(left.chars().collect::<String>(), String::from("TES\n"));
 
                 assert_eq!(right.height(), 1);
                 assert_eq!(right.len(), 7);
-                assert_eq!(right.line_count(), 3);
+                assert_eq!(right._line_count(), 3);
                 assert_eq!(right.weight(), 3);
                 assert_eq!(right.chars().collect::<String>(), String::from("t\n\nxin\n"));
             }
@@ -736,7 +735,7 @@ mod tests {
         let rope = rope.rotate_left();
         assert_eq!(rope.height(), 2);
         assert_eq!(rope.len(), 11);
-        assert_eq!(rope.line_count(), 3);
+        assert_eq!(rope.line_count(), 4);
         assert_eq!(rope.weight(), 7);
         assert_eq!(rope.chars().collect::<String>(), String::from("TES\nts\nxin\n"));
 
@@ -744,13 +743,13 @@ mod tests {
             Rope::Branch { left, right, .. } => {
                 assert_eq!(right.height(), 0);
                 assert_eq!(right.len(), 4);
-                assert_eq!(right.line_count(), 1);
+                assert_eq!(right._line_count(), 1);
                 assert_eq!(right.weight(), 4);
                 assert_eq!(right.chars().collect::<String>(), String::from("xin\n"));
 
                 assert_eq!(left.chars().collect::<String>(), String::from("TES\nts\n"));
                 assert_eq!(left.height(), 1);
-                assert_eq!(left.line_count(), 2);
+                assert_eq!(left._line_count(), 2);
                 assert_eq!(left.weight(), 4);
                 assert_eq!(left.len(), 7);
             }
@@ -916,6 +915,19 @@ mod tests {
         assert_eq!(rope_lines_iter.next(), Some(String::from("Hello!")));
         assert_eq!(rope_lines_iter.next(), Some(String::from("How are you?")));
         assert_eq!(rope_lines_iter.next(), Some(String::from("I hope you are\r good!")));
+        assert_eq!(rope_lines_iter.next(), Some(String::from("")));
         assert_eq!(rope_lines_iter.next(), None);
+    }
+
+    #[test]
+    fn lines_iter_skip_test() {
+        let mut rope = Rope::new();
+
+        for i in 0..30_000 {
+            let rope_len = rope.len();
+            rope = rope.insert(rope_len, format!("What is this: {}\n\r", i).as_str());
+        }
+        assert_eq!(rope.lines().skip(29_999).next(), Some(String::from("What is this: 29999")));
+        assert_eq!(rope.lines().skip(29_998).next(), Some(String::from("What is this: 29998")));
     }
 }
