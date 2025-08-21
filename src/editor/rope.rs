@@ -928,7 +928,8 @@ mod tests {
                 .collect();
 
             let insert_remove_ratio = random_floats.pop().unwrap();
-            let insert_remove_word = words.pop().unwrap();
+            let mut insert_remove_word = words.pop().unwrap();
+            insert_remove_word.push('\n');
             let insert_remove_word_char_count = insert_remove_word.chars().count();
 
             let correct_output: String = random_floats.iter()
