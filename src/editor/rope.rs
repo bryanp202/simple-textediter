@@ -219,7 +219,15 @@ impl Rope {
         }
     }
 
-    fn _remove_branch(index: usize, delete_len: usize, height: usize, weight: usize, line: usize, left: Box<Self>, right: Box<Self>) -> (Option<Box<Self>>, usize) {
+    fn _remove_branch(
+        index: usize,
+        delete_len: usize,
+        height: usize,
+        weight: usize,
+        line: usize,
+        left: Box<Self>,
+        right: Box<Self>
+    ) -> (Option<Box<Self>>, usize) {
         if index < weight {
             match left._remove(index, delete_len) {
                 (Some(left_branch), 0) => (
