@@ -920,6 +920,7 @@ mod tests {
                 .collect();
             let mut words: Vec<String> = (0..word_count)
                 .map(|_| { (0..word_len).map(|_| rng.sample(rand::distributions::Alphanumeric) as char).collect()})
+                .map(|x: String| x.replace('a', "\n"))
                 .collect();
 
             let insert_remove_ratio = random_floats.pop().unwrap();
@@ -933,6 +934,7 @@ mod tests {
                     acc
                 }
             );
+            let expected_lines = Rope::get_line_count(&correct_output);
 
             let mut rope = random_floats.into_iter()
                 .zip(words.iter())
@@ -946,6 +948,7 @@ mod tests {
             rope = rope.remove(insert_index, insert_remove_word_char_count);
             
             assert_eq!(rope.chars().collect::<String>(), correct_output);
+            assert_eq!(rope.line_count(), expected_lines + 1);
         }
     }
 
@@ -971,5 +974,20 @@ mod tests {
         }
         assert_eq!(rope.lines().skip(29_999).next(), Some(String::from("What is this: 29999")));
         assert_eq!(rope.lines().skip(29_998).next(), Some(String::from("What is this: 29998")));
+
+        let mut rope = Rope::new();
+        for i in 0..30_000 {
+            let rope_len = rope.len();
+            rope = rope.insert(rope_len, format!("What is this: {}\n\r", i).as_str());
+        }
+
+        let mut line_iter = rope.lines();
+        let large_skip = line_iter.by_ref().skip(23_000).next();
+        let skip_after_skip = line_iter.by_ref().skip(5000).take(3).collect::<Vec<_>>();
+        let step_by_after_skip = line_iter.by_ref().skip(600).take(11).step_by(5).collect::<Vec<_>>();
+        assert_eq!(large_skip, Some(String::from("What is this: 23000")));
+        assert_eq!(skip_after_skip[2], String::from("What is this: 28003"));
+        assert_eq!(step_by_after_skip[0], String::from("What is this: 28604"));
+        assert_eq!(step_by_after_skip[2], String::from("What is this: 28614"));
     }
 }
