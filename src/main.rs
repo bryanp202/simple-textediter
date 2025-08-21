@@ -18,19 +18,27 @@ pub fn main() {
 
     for i in 0..30_000 {
         let rope_len = rope.len();
-        rope = rope.insert(rope_len, format!("What is th\ris: {}\n\r", i).as_str());
+        rope = rope.insert(rope_len, format!("What is this: {}\n\r", i).as_str());
     }
     
     let dt = start.elapsed();
     println!("Time to run: {:?}, average: {}", dt, dt.as_nanos()as f64/1_000_000.0);//\nRope:\n{:?}", dt, rope.chars().collect::<String>());
     //println!("{:?}", rope.chars().collect::<String>());
     let skip_start = std::time::Instant::now();
-    let skipped1 = rope.lines().skip(29_999).next();
-    let skipped2 = rope.lines().skip(30_000).next();
+    let mut line_iter = rope.lines();
+    let nexted = line_iter.by_ref().skip(23_000).next();
     let time_to_skip = skip_start.elapsed();
-    println!("Skipped1: {:?}, skipped2: {:?}, Time to skip: {:?}", skipped1, skipped2, time_to_skip);
-    println!("Total lines: {}", rope.line_count());
-    println!("Total lines: {}", rope.lines().count());
+    let skipped1 = line_iter.by_ref().skip(5000).take(3).collect::<Vec<_>>();
+    let skipped2 = line_iter.by_ref().skip(600).take(3).collect::<Vec<_>>();
+    let next_after_skip = line_iter.next();
+    println!("Nexted: {:?}, skipped1: {:?}, skipped2: {:?} after skip: {:?}, Time to skip: {:?}", nexted, skipped1, skipped2, next_after_skip, time_to_skip);
+    //println!("Total lines: {}", rope.line_count());
+    //println!("Total lines: {}", rope.lines().count());
+    println!("nth 0: {:?}", rope.lines().nth(0));
+    println!("Skipped by 264: {:?}", rope.lines().step_by(10).take(10).collect::<Vec<_>>());
+
+    //let take_300th = rope.lines().take(301).last();
+    //println!("Take 301th: {:?}", take_300th);
 
     let bad_skip_start = std::time::Instant::now();
     let skipped1 = rope.chars().filter(|&c| c == '\n').skip(30_000).next();

@@ -325,7 +325,7 @@ impl Rope {
                     left: Box::new(Rope::Branch {
                         height: old_root_height,
                         weight: root_weight,
-                        line: right_line,
+                        line: root_line,
                         left: root_left,
                         right: right_left,
                     }),
@@ -469,7 +469,9 @@ impl <'a> Iterator for RopeIterator<'a> {
 pub struct RopeLineIterator<'a> {
     stack: Vec<&'a Rope>,
     current_leaf: Option<(&'a String, usize)>,
+    current_line: Vec<(u32, u32)>,
     finished: bool,
+    remove_return: bool,
 }
 
 impl <'a> RopeLineIterator<'a> {
@@ -477,18 +479,33 @@ impl <'a> RopeLineIterator<'a> {
         let mut new_iter = Self {
             stack: Vec::new(),
             current_leaf: None,
+            current_line: Vec::new(),
             finished: false,
+            remove_return: false,
         };
         new_iter.push_left(root);
         new_iter
     }
-    
+
+    fn check_current_line(&mut self) {
+        if let Some((_, level)) = self.current_line.last() {
+            if *level == 0 {
+                let (lines, _) = self.current_line.pop().unwrap();
+                self.current_line.last_mut().map(|(pos, _)| *pos += lines);
+            }
+        }
+    }
+
     fn push_left(&mut self, mut node: &'a Rope) {
+        self.check_current_line();
+        let current_stack_len = self.stack.len() as u32;
         while let Rope::Branch { left, .. } = node {
             self.stack.push(node);
             node = left;
         }
         self.stack.push(node);
+        let new_stack_len = self.stack.len() as u32;
+        self.current_line.push((0, new_stack_len - current_stack_len));
     }
 }
 
@@ -499,12 +516,17 @@ impl <'a> Iterator for RopeLineIterator<'a> {
         loop {
             while let Some((text, ref mut index)) = self.current_leaf {
                 if *index < text.len() {
-                    let ch = text[*index..].chars().next()?;
-                    *index += ch.len_utf8();
-                    if ch == '\n' {
+                    if self.remove_return {
                         if let Some('\r') = text[*index..].chars().next() {
                             *index += '\r'.len_utf8();
                         }
+                        self.remove_return = false;
+                    }
+                    let Some(ch) = text[*index..].chars().next() else { break };
+                    *index += ch.len_utf8();
+                    if ch == '\n' {
+                        self.current_line.last_mut().map(|(pos, _)| *pos += 1);
+                        self.remove_return = true;
                         return Some(line_str);
                     } else {
                         line_str.push(ch);
@@ -515,6 +537,7 @@ impl <'a> Iterator for RopeLineIterator<'a> {
             }
 
             loop {
+                self.check_current_line();
                 let Some(node) = self.stack.pop() else {
                     if self.finished {
                         return None;
@@ -523,6 +546,7 @@ impl <'a> Iterator for RopeLineIterator<'a> {
                         return Some(line_str);
                     }
                 };
+                self.current_line.last_mut().map(|(_, level)| *level -= 1);
                 match node {
                     Rope::Leaf(text) => {
                         self.current_leaf = Some((text, 0));
@@ -536,6 +560,11 @@ impl <'a> Iterator for RopeLineIterator<'a> {
 
     fn nth(&mut self, mut n: usize) -> Option<Self::Item> {
         loop {
+            if let Some(Rope::Branch { line, .. }) = self.stack.last() {
+                if *line + self.current_line.last().map(|&(pos, _)| pos as usize).unwrap() < n {
+                    self.current_leaf = None;
+                }
+            }
             if let Some((text, ref mut index)) = self.current_leaf {
                 if *index < text.len() {
                     let nth_newline = text[*index..].char_indices()
@@ -544,38 +573,43 @@ impl <'a> Iterator for RopeLineIterator<'a> {
                         .take(n)
                         .last();
                     if let Some((new_n, new_index)) = nth_newline {
-                        *index = new_index + '\n'.len_utf8();
+                        self.current_line.last_mut().map(|(pos, _)| *pos += (n - new_n) as u32);
+                        *index += new_index + '\n'.len_utf8();
                         if new_n == 0 {
-                            if let Some('\r') = text[*index..].chars().next() {
-                                *index += '\r'.len_utf8();
-                            }
+                            self.remove_return = true;
                             break;
                         }
                         n = new_n;
+                    } else {
+                        break;
                     }
                 }
             }
 
             loop {
-                let node = self.stack.pop()?;
-                if let Some(Rope::Branch { line, .. }) = self.stack.last() {
-                    if *line < n {
-                        continue;
-                    }
-                }
+                self.check_current_line();
+                let Some(node) = self.stack.pop() else {
+                    return self.next();
+                };
+                self.current_line.last_mut().map(|(_, level)| *level -= 1);
                 match node {
                     Rope::Leaf(text) => {
                         self.current_leaf = Some((text, 0));
                         break;
                     },
-                    Rope::Branch { right, line, .. } => {
-                        n -= line;
+                    Rope::Branch { right, line: current_node_line, .. } => {
+                        if let Some(Rope::Branch { line: parent_line, .. }) = self.stack.last() {
+                            if *parent_line + self.current_line.last().map(|&(pos, _)| pos as usize).unwrap() < n {
+                                continue;
+                            }
+                        }
+                        n -= current_node_line - self.current_line.last().map(|&(pos, _)| pos as usize).unwrap();
+                        self.current_line.last_mut().map(|(pos, _)| *pos = *current_node_line as u32);
                         self.push_left(right);
                     }
                 }
             }
         }
-
         self.next()
     }
 }
