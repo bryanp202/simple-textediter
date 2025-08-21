@@ -696,25 +696,29 @@ mod tests {
                 .collect();
             let words: Vec<String> = (0..word_count)
                 .map(|_| { (0..word_len).map(|_| rng.sample(rand::distributions::Alphanumeric) as char).collect()})
+                .map(|x: String| x.replace('b', "\n"))
                 .collect();
 
             let correct_output: String = random_floats.iter().zip(words.iter())
                 .fold(String::new(), |mut acc, (float, word)| {
                     acc.insert_str((acc.chars().count() as f64 * float) as usize, &word);
                     acc
-                });
+                }
+            );
+            let expected_lines = Rope::get_line_count(&correct_output);
 
-            let rope_output: String = random_floats.into_iter()
+            let rope = random_floats.into_iter()
                 .zip(words.iter())
                 .fold(Rope::new(), |rope, (float, word)| {
                     let rope_len = rope.len() as f64;
                     rope.insert((rope_len * float) as usize, &word)
-                })
-                .chars()
-                .collect();
+                }
+            );
+            let rope_output: String = rope.chars().collect();
 
             assert_eq!(correct_output.len(), rope_output.len());
             assert_eq!(correct_output, rope_output);
+            assert_eq!(rope.line_count(), expected_lines + 1);
         }
     }
 
@@ -920,7 +924,7 @@ mod tests {
                 .collect();
             let mut words: Vec<String> = (0..word_count)
                 .map(|_| { (0..word_len).map(|_| rng.sample(rand::distributions::Alphanumeric) as char).collect()})
-                .map(|x: String| x.replace('a', "\n"))
+                .map(|x: String| x.replace('b', "\n"))
                 .collect();
 
             let insert_remove_ratio = random_floats.pop().unwrap();
