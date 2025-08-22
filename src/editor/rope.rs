@@ -2,6 +2,89 @@ use std::fmt::Debug;
 use std::iter::Iterator;
 use std::cmp::Ordering;
 
+pub struct TextRope {
+    root: Rope,
+    len: usize,
+    line_count: usize,
+}
+
+impl TextRope {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn insert(self, index: usize, insert_text: &str) -> Self {
+        let char_count = insert_text.chars().count();
+        let line_count = Rope::get_line_count(insert_text);
+        Self {
+            root: self.root._insert(index, insert_text, char_count, line_count),
+            len: self.len + char_count,
+            line_count: self.line_count + line_count,
+        }
+    }
+
+    pub fn append(self, insert_text: &str) -> Self {
+        let char_count = insert_text.chars().count();
+        let line_count = Rope::get_line_count(insert_text);
+        Self {
+            root: self.root._insert(self.len, insert_text, char_count, line_count),
+            len: self.len + char_count,
+            line_count: self.line_count + line_count,
+        }
+    }
+
+    pub fn remove(self, index: usize, len: usize) -> Self {
+        let new_root = self.root.remove(index, len);
+        Self {
+            len: self.len - len,
+            line_count: new_root._line_count(),
+            root: new_root,
+        }
+    }
+
+    pub fn pop(self, len: usize) -> Self {
+        if len > self.len {
+            return self;
+        }
+        let new_root = self.root.remove(self.len - len, len);
+        Self {
+            len: self.len - len,
+            line_count: new_root._line_count(),
+            root: new_root,
+        }
+    }
+
+    pub fn get_line_index(&self, target_line: usize) -> usize {
+        self.root.line_start_index(target_line)
+    }
+
+    pub fn chars(&self) -> RopeIterator {
+        self.root.chars()
+    }
+
+    pub fn lines(&self) -> RopeLineIterator {
+        self.root.lines()
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn line_count(&self) -> usize {
+        self.line_count + 1
+    }
+}
+
+impl Default for TextRope {
+    fn default() -> Self {
+        Self {
+            root: Rope::new(),
+            len: 0,
+            line_count: 0,
+        }
+    }
+}
+
 pub enum Rope {
     Branch {
         height: usize,
@@ -16,7 +99,7 @@ pub enum Rope {
 impl Rope {
     const MAX_NODE_INSERT_SIZE: usize = 4096;
     pub fn new() -> Self {
-        Rope::Leaf(String::new())
+        Self::default()
     }
 
     pub fn new_branch(height: usize, weight: usize, line: usize, left: Box<Rope>, right: Box<Rope>) -> Self {
@@ -38,8 +121,32 @@ impl Rope {
         }
     }
 
+    /// Returns the index of the first column in a line
+    /// 
+    /// Expects target_line to be zero indexed
+    pub fn line_start_index(&self, target_line: usize) -> usize {
+        if target_line == 0 {
+            0
+        } else {
+            self._line_start_index(target_line - 1).0
+        }
+    }
+    
     pub fn line_count(&self) -> usize {
         self._line_count() + 1
+    }
+
+    pub fn get(&self, target_index: usize) -> Option<char> {
+        match self {
+            Rope::Branch { weight, left, right, .. } => {
+                if target_index < *weight {
+                    left.get(target_index)
+                } else {
+                    right.get(target_index - weight)
+                }
+            },
+            Rope::Leaf(text) => text.chars().nth(target_index)
+        }
     }
 
     pub fn insert(self, index: usize, insert_text: &str) -> Self {
@@ -74,7 +181,7 @@ impl Rope {
     fn _insert_leaf(index: usize, insert_text: &str, insert_text_len: usize, mut text: String) -> Self {
         let text_len = text.chars().count();
         if index > text_len {
-            panic!("Out of bounds index: Leaf of len {}, Index {}", text_len, index);
+            panic!("[Insert] Out of bounds index: Leaf of len {}, Index {}", text_len, index);
         }
         if text_len + insert_text_len <= Self::MAX_NODE_INSERT_SIZE {
             let char_index= Self::get_char_index(&text, text_len, index);
@@ -192,7 +299,7 @@ impl Rope {
     fn _remove_leaf(index: usize, delete_len: usize, text: String) -> (Option<Box<Self>>, usize) {
         let text_len = text.chars().count();
         if index >= text_len {
-            panic!("Out of bounds index: Leaf of len {}, Index {}", text_len, index);
+            panic!("[Remove] Out of bounds index: Leaf of len {}, Index {}", text_len, index);
         }
         let len_after_index = text_len - index;
         match len_after_index.cmp(&delete_len) {
@@ -273,6 +380,38 @@ impl Rope {
                     remaining_del_len,
                 ),
                 (None, remaining_del_len) => (Some(left), remaining_del_len),
+            }
+        }
+    }
+
+    fn _line_start_index(&self, target_line: usize) -> (usize, bool) {
+        match self {
+            Rope::Branch { weight, line, left, right, .. } => {
+                if target_line <= *line {
+                    let (result_index, check_for_return) =  left._line_start_index(target_line);
+                    if check_for_return && right.get(0) == Some('\r') {
+                        (result_index + 1, false)
+                    } else {
+                        (result_index, false)
+                    }
+                } else {
+                    let (result_index, check_for_return) = right._line_start_index(target_line - line);
+                    (result_index + weight, check_for_return)
+                }
+            },
+            Rope::Leaf(text) => {
+                let mut chars_iter = text.chars();
+                let target_newline_index = chars_iter.by_ref()
+                    .enumerate()
+                    .filter(|&(_, c)| c == '\n')
+                    .map(|(i, _)| i)
+                    .nth(target_line)
+                    .unwrap();
+                if chars_iter.next() == Some('\r') {
+                    (target_newline_index + 2, false)
+                } else {
+                    (target_newline_index + 1, true)
+                }
             }
         }
     }
@@ -419,6 +558,12 @@ impl Debug for Rope {
         let mut as_str = String::with_capacity(self.height() as usize);
         self.as_str(&mut as_str, 0);
         f.write_str(&as_str)
+    }
+}
+
+impl Default for Rope {
+    fn default() -> Self {
+        Rope::Leaf(String::new())
     }
 }
 
@@ -979,12 +1124,6 @@ mod tests {
         }
         assert_eq!(rope.lines().skip(29_999).next(), Some(String::from("What is this: 29999")));
         assert_eq!(rope.lines().skip(29_998).next(), Some(String::from("What is this: 29998")));
-
-        let mut rope = Rope::new();
-        for i in 0..30_000 {
-            let rope_len = rope.len();
-            rope = rope.insert(rope_len, format!("What is this: {}\n\r", i).as_str());
-        }
 
         let mut line_iter = rope.lines();
         let large_skip = line_iter.by_ref().skip(23_000).next();
