@@ -251,7 +251,12 @@ impl <'a> Editor<'a> {
 
         let old_text = std::mem::take(text);
         *text = old_text.insert(index, text_chunk);
-        let text_len = text_chunk.chars().count() as isize;
+
+        let text_len = text_chunk.chars().scan(false, |skip_return, c| {
+            *skip_return = c == '\n';
+            Some((*skip_return, c))
+        }).filter(|&(skip_return, c)| c != '\n' && (!skip_return || c == '\r')).count() as isize; // FIX MEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+
         cursor.shift_x(text_len, text);
         *render_text = true;
     }
