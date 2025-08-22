@@ -1,3 +1,4 @@
+#![windows_subsystem = "windows"]
 extern crate sdl3;
 
 mod editor;
@@ -10,14 +11,13 @@ use sdl3::ttf;
 use crate::editor::Editor;
 use crate::editor::rope::Rope;
 
-
 pub fn main() {
     unsafe { std::env::set_var("RUST_BACKTRACE", "1"); }
     run();    
 }
 
 pub fn run() {
-    const FRAME_RATE: u64 = 60;
+    const FRAME_RATE: u64 = 120;
     const FRAME_DELTA: Duration = Duration::from_nanos(1_000_000_000 / FRAME_RATE);
     const INIT_WINDOW_WIDTH: u32 = 800;
     const INIT_WINDOW_HEIGHT: u32 = 600;

@@ -5,12 +5,9 @@ pub mod rope;
 
 use windowstate::WindowState;
 use cursor::Cursor;
-use std::{error::Error, ffi::CString, str::FromStr};
+use std::{error::Error, ffi::CString, path::PathBuf, str::FromStr, sync::{Arc, Mutex}};
 
-use sdl3::{event::{Event, WindowEvent}, keyboard::Keycode, pixels::Color,
-    rect::Rect, render::{Canvas, FPoint, TextureCreator, TextureQuery},
-    sys::{clipboard::SDL_SetClipboardText, events::SDL_WindowEvent, keyboard::{SDL_GetModState, SDL_StartTextInput, SDL_StopTextInput}, keycode::SDL_KMOD_CTRL}, ttf::{Font, FontStyle, Sdl3TtfContext},
-    video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
+use sdl3::{dialog::{show_open_file_dialog, show_save_file_dialog, DialogError, DialogFileFilter}, event::{Event, WindowEvent}, keyboard::Keycode, pixels::Color, rect::Rect, render::{Canvas, FPoint, TextureCreator, TextureQuery}, sys::{clipboard::SDL_SetClipboardText, events::SDL_WindowEvent, keyboard::{SDL_GetModState, SDL_StartTextInput, SDL_StopTextInput}, keycode::SDL_KMOD_CTRL}, ttf::{Font, FontStyle, Sdl3TtfContext}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
 
 use crate::{editor::rope::TextRope, vector::Vector2D};
 
@@ -43,6 +40,8 @@ pub struct Editor <'a> {
     // Data
     font: Font<'a>,
     window: WindowState,
+    open_file_paths: Arc<Mutex<Vec<PathBuf>>>,
+    save_file_paths: Arc<Mutex<Vec<PathBuf>>>,
     // Handlers
     context: EditorContext,
 }
@@ -87,6 +86,8 @@ impl <'a> Editor<'a> {
             alignment: TextAlignment::LEFT,
             cursor: Cursor::new(text_width, text_height),
             window: WindowState::new(window_width, window_height, text_width, text_height),
+            open_file_paths: Arc::new(Mutex::new(Vec::new())),
+            save_file_paths: Arc::new(Mutex::new(Vec::new())),
         };
 
         Ok(new_editor)
@@ -140,13 +141,63 @@ impl <'a> Editor<'a> {
                 },
                 Event::KeyDown { keycode: Some(Keycode::C), ..}
                 if unsafe {SDL_GetModState()} & SDL_KMOD_CTRL > 0 => {
-                    let raw_text = CString::from_str(self.text.chars().collect::<String>().as_str())?;
+                    let raw_text = CString::from_str(Self::export(&self.text).as_str())?;
                     unsafe {SDL_SetClipboardText(raw_text.as_ptr()); }
                 }
                 Event::KeyDown { keycode: Some(Keycode::V), ..}
                 if unsafe { SDL_GetModState() } & SDL_KMOD_CTRL > 0 => {
                     let clipboard_text = self.context.video_subsystem.clipboard().clipboard_text()?;
-                    Self::insert_text(&mut self.text, &mut self.cursor, &mut self.render_text, &clipboard_text);
+                    let normalized_clipboard_text = clipboard_text.replace("\r\n", "\n");
+                    Self::insert_text(&mut self.text, &mut self.cursor, &mut self.render_text, &normalized_clipboard_text);
+                },
+                Event::KeyDown { keycode: Some(Keycode::O), .. }
+                if unsafe { SDL_GetModState() } & SDL_KMOD_CTRL > 0 => {
+                    let filters = [
+                        DialogFileFilter {
+                            name: "Text",
+                            pattern: "txt",
+                        },
+                    ];
+                    let file_path_ref = self.open_file_paths.clone();
+                    show_open_file_dialog(
+                        &filters,
+                        None::<PathBuf>,
+                        true,
+                        self.context.canvas.window(),
+                        Box::new(move |result, _| {
+                            let Ok(file_paths) = result else { return };
+                            let mut open_file_paths = file_path_ref.lock().unwrap_or_else(|mut err| {
+                                **err.get_mut() = vec![];
+                                file_path_ref.clear_poison();
+                                err.into_inner()
+                            });
+                            open_file_paths.extend_from_slice(&file_paths);
+                        }),
+                        ).map_err(|err| err.to_string())?;
+                },
+                Event::KeyDown { keycode: Some(Keycode::S), .. }
+                if unsafe { SDL_GetModState() } & SDL_KMOD_CTRL > 0 => {
+                    let filters = [
+                        DialogFileFilter {
+                            name: "Text",
+                            pattern: "txt",
+                        },
+                    ];
+                    let file_path_ref = self.save_file_paths.clone();
+                    show_save_file_dialog(
+                        &filters,
+                        None::<PathBuf>,
+                        self.context.canvas.window(),
+                        Box::new(move |result, _| {
+                            let Ok(file_paths) = result else { return };
+                            let mut open_file_paths = file_path_ref.lock().unwrap_or_else(|mut err| {
+                                **err.get_mut() = vec![];
+                                file_path_ref.clear_poison();
+                                err.into_inner()
+                            });
+                            open_file_paths.extend_from_slice(&file_paths);
+                        }),
+                        ).map_err(|err| err.to_string())?;
                 },
                 Event::TextInput { text: input_text, .. } => Self::insert_text(
                     &mut self.text,
@@ -207,9 +258,10 @@ impl <'a> Editor<'a> {
     }
 
     pub fn update(&mut self) {
-        if self.cursor.update() {
-            self.render_text = true;
-        }
+        self.render_text = self.cursor.update();
+
+        self.check_open_files();
+        self.check_save_files();
     }
 
     pub fn close(self) {
@@ -218,6 +270,41 @@ impl <'a> Editor<'a> {
 }
 
 impl <'a> Editor<'a> {
+    fn check_open_files(&mut self) {
+        let mut open_file_paths = self.open_file_paths.lock().unwrap_or_else(|mut err| {
+            **err.get_mut() = vec![];
+            self.open_file_paths.clear_poison();
+            err.into_inner()
+        });
+        while let Some(file_path) = open_file_paths.pop() {
+            let os_file_path = file_path.into_os_string();
+            let data = std::fs::read_to_string(os_file_path).unwrap_or_else(|_| String::new());
+            let normalized_data = data.replace("\r\n", "\n");
+            self.text = TextRope::new().append(&normalized_data);
+            self.cursor.move_to(0, 0);
+            self.render_text = true;
+        }
+    }
+
+    fn check_save_files(&mut self) {
+        let mut save_file_paths = self.save_file_paths.lock().unwrap_or_else(|mut err| {
+            **err.get_mut() = vec![];
+            self.open_file_paths.clear_poison();
+            err.into_inner()
+        });
+        while let Some(file_path) = save_file_paths.pop() {
+            let os_file_path = file_path.into_os_string();
+            _ = std::fs::write(os_file_path, Self::export(&self.text));
+            self.render_text = true;
+        }
+    }
+
+    fn export(text: &TextRope) -> String {
+        let raw_text = text.chars().collect::<String>();
+        let windows_text = raw_text.replace("\n", "\r\n");
+        windows_text
+    }
+
     fn delete_text(text: &mut TextRope, cursor: &mut Cursor, render_text: &mut bool) {
         let Vector2D {x, y} = cursor.pos();
         let line_index = text.get_line_index(y as usize);
@@ -228,6 +315,7 @@ impl <'a> Editor<'a> {
 
         let old_text = std::mem::take(text);
         *text = old_text.remove(index, 1);
+        cursor.reset_blink();
         *render_text = true;
     }
 
@@ -248,14 +336,14 @@ impl <'a> Editor<'a> {
         let Vector2D {x, y} = cursor.pos();
         let line_index = text.get_line_index(y as usize);
         let index = line_index + x as usize;
-
+        
         let old_text = std::mem::take(text);
         *text = old_text.insert(index, text_chunk);
 
         let text_len = text_chunk.chars().scan(false, |skip_return, c| {
             *skip_return = c == '\n';
             Some((*skip_return, c))
-        }).filter(|&(skip_return, c)| c != '\n' && (!skip_return || c == '\r')).count() as isize; // FIX MEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+        }).filter(|&(skip_return, c)| !skip_return || c != '\r').count() as isize;
 
         cursor.shift_x(text_len, text);
         *render_text = true;

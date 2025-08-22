@@ -53,6 +53,7 @@ impl Cursor {
             let mut line_len = line_iter.next().map(|line_str| line_str.chars().count() as u32).unwrap();
             while new_x > line_len {
                 let Some(next_line_len) = line_iter.next().map(|line_str| line_str.chars().count() as u32) else {
+                    new_x = line_len;
                     break;
                 };
                 new_y += 1;
@@ -79,6 +80,10 @@ impl Cursor {
     pub fn move_to(&mut self, x: u32, y: u32) {
         self.pos.x = x;
         self.pos.y = y;
+        self.reset_blink();
+    }
+
+    pub fn reset_blink(&mut self) {
         self.blink_timer = Instant::now();
         self.blink_on = true;
     }

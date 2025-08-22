@@ -54,6 +54,10 @@ impl TextRope {
         }
     }
 
+    pub fn get(&self, index: usize) -> Option<char> {
+        self.root.get(index)
+    }
+
     pub fn get_line_index(&self, target_line: usize) -> usize {
         self.root.line_start_index(target_line)
     }
@@ -128,7 +132,7 @@ impl Rope {
         if target_line == 0 {
             0
         } else {
-            self._line_start_index(target_line - 1).0
+            self._line_start_index(target_line - 1)
         }
     }
     
@@ -161,6 +165,10 @@ impl Rope {
     pub fn remove(self, index: usize, len: usize) -> Self {
         let (result, _) = self._remove(index, len);
         result.map_or_else(Rope::new, |x| *x)
+    }
+
+    pub fn get_line_count(text: &str) -> usize {
+        text.chars().filter(|&c| c == '\n').count()
     }
 }
 
@@ -384,19 +392,13 @@ impl Rope {
         }
     }
 
-    fn _line_start_index(&self, target_line: usize) -> (usize, bool) {
+    fn _line_start_index(&self, target_line: usize) -> usize {
         match self {
-            Rope::Branch { weight, line, left, right, .. } => {
+            Rope::Branch { line, left, right, .. } => {
                 if target_line <= *line {
-                    let (result_index, check_for_return) =  left._line_start_index(target_line);
-                    if check_for_return && right.get(0) == Some('\r') {
-                        (result_index + 1, false)
-                    } else {
-                        (result_index, false)
-                    }
+                    left._line_start_index(target_line)
                 } else {
-                    let (result_index, check_for_return) = right._line_start_index(target_line - line);
-                    (result_index + weight, check_for_return)
+                    right._line_start_index(target_line - line)
                 }
             },
             Rope::Leaf(text) => {
@@ -407,11 +409,7 @@ impl Rope {
                     .map(|(i, _)| i)
                     .nth(target_line)
                     .unwrap();
-                if chars_iter.next() == Some('\r') {
-                    (target_newline_index + 2, false)
-                } else {
-                    (target_newline_index + 1, true)
-                }
+                target_newline_index + 1
             }
         }
     }
@@ -511,10 +509,6 @@ impl Rope {
             Rope::Branch { line, right, .. } => *line + right._line_count(),
             Rope::Leaf(text) => Self::get_line_count(&text),
         }
-    }
-
-    fn get_line_count(text: &str) -> usize {
-        text.chars().filter(|&c| c == '\n').count()
     }
 
     fn get_char_index(text: &str, text_len: usize, index: usize) -> usize {
@@ -624,7 +618,6 @@ pub struct RopeLineIterator<'a> {
     current_leaf: Option<(&'a String, usize)>,
     current_line: Vec<(u32, u32)>,
     finished: bool,
-    remove_return: bool,
 }
 
 impl <'a> RopeLineIterator<'a> {
@@ -634,7 +627,6 @@ impl <'a> RopeLineIterator<'a> {
             current_leaf: None,
             current_line: Vec::new(),
             finished: false,
-            remove_return: false,
         };
         new_iter.push_left(root);
         new_iter
@@ -669,17 +661,10 @@ impl <'a> Iterator for RopeLineIterator<'a> {
         loop {
             while let Some((text, ref mut index)) = self.current_leaf {
                 if *index < text.len() {
-                    if self.remove_return {
-                        if let Some('\r') = text[*index..].chars().next() {
-                            *index += '\r'.len_utf8();
-                        }
-                        self.remove_return = false;
-                    }
                     let Some(ch) = text[*index..].chars().next() else { break };
                     *index += ch.len_utf8();
                     if ch == '\n' {
                         self.current_line.last_mut().map(|(pos, _)| *pos += 1);
-                        self.remove_return = true;
                         return Some(line_str);
                     } else {
                         line_str.push(ch);
@@ -729,7 +714,6 @@ impl <'a> Iterator for RopeLineIterator<'a> {
                         self.current_line.last_mut().map(|(pos, _)| *pos += (n - new_n) as u32);
                         *index += new_index + '\n'.len_utf8();
                         if new_n == 0 {
-                            self.remove_return = true;
                             break;
                         }
                         n = new_n;
