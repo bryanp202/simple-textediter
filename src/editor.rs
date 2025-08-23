@@ -87,7 +87,7 @@ impl <'a> Editor<'a> {
             line_padding: DEFAULT_LINE_PADDING,
             alignment: TextAlignment::LEFT,
             cursor: Cursor::new(text_width, text_height),
-            window: WindowState::new(window_width, window_height, text_width, text_height),
+            window: WindowState::new(window_width, window_height, text_width, text_height, DEFAULT_TEXT_PADDING, DEFAULT_LINE_PADDING),
             open_file_paths: Arc::new(Mutex::new(Vec::new())),
             save_file_paths: Arc::new(Mutex::new(Vec::new())),
         };
@@ -106,7 +106,9 @@ impl <'a> Editor<'a> {
                 Event::Window { win_event: WindowEvent::Resized(w_w, w_h), .. }
                     | Event::Window { win_event: WindowEvent::PixelSizeChanged(w_w, w_h), ..} => {
                         let (text_width, text_height) = self.font.size_of_char('|')?;
-                    self.window.resize(w_w as u32, w_h as u32, text_width, text_height);
+                    self.window.resize(
+                        w_w as u32, w_h as u32, text_width, text_height, self.text_padding, self.line_padding
+                    );
                     self.render_text = true;
                 }
                 Event::KeyDown { keycode: Some(Keycode::Home), .. } => {
@@ -115,44 +117,47 @@ impl <'a> Editor<'a> {
                     } else {
                         self.cursor.pos().y
                     };
-                    self.cursor.move_to(0, y);
+                    self.cursor.move_to(0, y, &mut self.window);
                     self.render_text = true;
                 },
                 Event::KeyDown { keycode: Some(Keycode::Delete), .. } => Self::delete_text(
                     &mut self.text,
                     &mut self.cursor,
-                    &mut self.render_text
+                    &mut self.render_text,
                 ),
                 Event::KeyDown { keycode: Some(Keycode::Backspace), .. } => Self::remove_text(
                     &mut self.text,
                     &mut self.cursor,
                     &mut self.render_text,
-                    1
+                    1,
+                    &mut self.window,
                 ),
                 Event::KeyDown { keycode: Some(Keycode::Return), .. } => Self::return_text(
                     &mut self.text,
                     &mut self.cursor,
-                    &mut self.render_text
+                    &mut self.render_text,
+                    &mut self.window,
                 ),
                 Event::KeyDown { keycode: Some(Keycode::Tab), .. } => Self::tab_text(
                     &mut self.text,
                     &mut self.cursor,
                     &mut self.render_text,
+                    &mut self.window,
                 ),
                 Event::KeyDown { keycode: Some(Keycode::Up), .. } => {
-                    self.cursor.shift_y(-1, &self.text);
+                    self.cursor.shift_y(-1, &self.text, &mut self.window);
                     self.render_text = true;
                 },
                 Event::KeyDown { keycode: Some(Keycode::Down), .. } => {
-                    self.cursor.shift_y(1, &self.text);
+                    self.cursor.shift_y(1, &self.text, &mut self.window);
                     self.render_text = true;
                 },
                 Event::KeyDown { keycode: Some(Keycode::Left), .. } => {
-                    self.cursor.shift_x(-1, &self.text);
+                    self.cursor.shift_x(-1, &self.text, &mut self.window);
                     self.render_text = true;
                 },
                 Event::KeyDown { keycode: Some(Keycode::Right), .. } => {
-                    self.cursor.shift_x(1, &self.text);
+                    self.cursor.shift_x(1, &self.text, &mut self.window);
                     self.render_text = true;
                 },
                 Event::KeyDown { keycode: Some(Keycode::C), ..}
@@ -164,7 +169,13 @@ impl <'a> Editor<'a> {
                 if unsafe { SDL_GetModState() } & SDL_KMOD_CTRL > 0 => {
                     let clipboard_text = self.context.video_subsystem.clipboard().clipboard_text()?;
                     let normalized_clipboard_text = clipboard_text.replace("\r\n", "\n");
-                    Self::insert_text(&mut self.text, &mut self.cursor, &mut self.render_text, &normalized_clipboard_text);
+                    Self::insert_text(
+                        &mut self.text,
+                        &mut self.cursor,
+                        &mut self.render_text,
+                        &normalized_clipboard_text,
+                        &mut self.window,
+                    );
                 },
                 Event::KeyDown { keycode: Some(Keycode::O), .. }
                 if unsafe { SDL_GetModState() } & SDL_KMOD_CTRL > 0 => {
@@ -232,7 +243,8 @@ impl <'a> Editor<'a> {
                     &mut self.text,
                     &mut self.cursor,
                     &mut self.render_text,
-                    &input_text
+                    &input_text,
+                    &mut self.window,
                 ),
                 Event::MouseButtonDown { mouse_btn: MouseButton::Left, x: click_x, y: click_y, .. } => Self::left_click(
                     click_x,
@@ -241,7 +253,8 @@ impl <'a> Editor<'a> {
                     &mut self.cursor,
                     &mut self.render_text,
                     self.text_padding,
-                self.line_padding,
+                    self.line_padding,
+                    &mut self.window,
                 ),
                 _ => {},
             }
@@ -264,8 +277,9 @@ impl <'a> Editor<'a> {
 
         for line_text in self.text.lines().skip(self.window.get_first_line()).take(self.window.lines()) {
             let trimmed_text = line_text.trim_end();
-            let text_to_render = if trimmed_text.len() != 0 {
-                trimmed_text.chars().take(self.window.chars()).collect::<String>()
+            let focused_text = trimmed_text.chars().skip(self.window.get_first_char()).take(self.window.chars()).collect::<String>();
+            let text_to_render = if focused_text.len() != 0 {
+                focused_text
             } else {
                 String::from(" ")
             };
@@ -288,7 +302,7 @@ impl <'a> Editor<'a> {
             start_y += height + self.line_padding;
         }
 
-        self.cursor.draw(&mut self.context.canvas, self.text_padding, self.line_padding)?;
+        self.cursor.draw(&mut self.context.canvas, self.text_padding, self.line_padding, &self.window)?;
 
         self.context.canvas.present();
 
@@ -313,7 +327,7 @@ impl <'a> Editor<'a> {
         
         let normalized_data = data.replace("\r\n", "\n");
         self.text = TextRope::new().append(&normalized_data);
-        self.cursor.move_to(0, 0);
+        self.cursor.move_to(0, 0, &mut self.window);
         self.render_text = true;
     }
 
@@ -328,7 +342,7 @@ impl <'a> Editor<'a> {
             
             let normalized_data = data.replace("\r\n", "\n");
             self.text = TextRope::new().append(&normalized_data);
-            self.cursor.move_to(0, 0);
+            self.cursor.move_to(0, 0, &mut self.window);
             self.render_text = true;
         }
     }
@@ -365,20 +379,20 @@ impl <'a> Editor<'a> {
         *render_text = true;
     }
 
-    fn remove_text(text: &mut TextRope, cursor: &mut Cursor, render_text: &mut bool, amt: usize) {
+    fn remove_text(text: &mut TextRope, cursor: &mut Cursor, render_text: &mut bool, amt: usize, window: &mut WindowState) {
         let Vector2D {x, y} = cursor.pos();
         let line_index = text.get_line_index(y as usize);
         let Some(index) = (line_index + x as usize).checked_sub(amt) else {
             return;
         };
-        cursor.shift_x(-(amt as isize), text);
+        cursor.shift_x(-(amt as isize), text, window);
 
         let old_text = std::mem::take(text);
         *text = old_text.remove(index, amt);
         *render_text = true;
     }
 
-    fn insert_text(text: &mut TextRope, cursor: &mut Cursor, render_text: &mut bool, text_chunk: &str) {
+    fn insert_text(text: &mut TextRope, cursor: &mut Cursor, render_text: &mut bool, text_chunk: &str, window: &mut WindowState) {
         let Vector2D {x, y} = cursor.pos();
         let line_index = text.get_line_index(y as usize);
         let index = line_index + x as usize;
@@ -391,22 +405,22 @@ impl <'a> Editor<'a> {
             Some((*skip_return, c))
         }).filter(|&(skip_return, c)| !skip_return || c != '\r').count() as isize;
 
-        cursor.shift_x(text_len, text);
+        cursor.shift_x(text_len, text, window);
         *render_text = true;
     }
 
-    fn return_text(text: &mut TextRope, cursor: &mut Cursor, render_text: &mut bool) {
+    fn return_text(text: &mut TextRope, cursor: &mut Cursor, render_text: &mut bool, window: &mut WindowState) {
         let Vector2D {x, y} = cursor.pos();
         let line_index = text.get_line_index(y as usize);
         let index = line_index + x as usize;
 
         let old_text = std::mem::take(text);
         *text = old_text.insert(index, "\n");
-        cursor.ret();
+        cursor.ret(window);
         *render_text = true;
     }
 
-    fn tab_text(text: &mut TextRope, cursor: &mut Cursor, render_text: &mut bool) {
+    fn tab_text(text: &mut TextRope, cursor: &mut Cursor, render_text: &mut bool, window: &mut WindowState) {
         let Vector2D {x, y} = cursor.pos();
         let line_index = text.get_line_index(y as usize);
         let index = line_index + x as usize;
@@ -414,7 +428,7 @@ impl <'a> Editor<'a> {
         let spaces = TAB_SPACE_COUNT - x % TAB_SPACE_COUNT;
         let old_text = std::mem::take(text);
         *text = old_text.insert(index, &TAB_SPACE_STRING[..spaces as usize]);
-        cursor.shift_x(spaces as isize, text);
+        cursor.shift_x(spaces as isize, text, window);
         *render_text = true;
     }
 
@@ -425,9 +439,10 @@ impl <'a> Editor<'a> {
         cursor: &mut Cursor,
         render_text: &mut bool,
         text_pad: u32,
-        line_pad: u32
+        line_pad: u32,
+        window: &mut WindowState,
     ) {
-        cursor.click(click_x, click_y, text, text_pad, line_pad);
+        cursor.left_click_press(click_x, click_y, text, text_pad, line_pad, window);
         *render_text = true;
     }
 }
