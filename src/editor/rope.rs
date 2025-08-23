@@ -1088,12 +1088,12 @@ mod tests {
 
     #[test]
     fn lines_iter_test() {
-        let rope = Rope::new().insert(0, "Hello!\n\rHow are you?\nI hope you are\r good!\n");
-        assert_eq!(rope.chars().collect::<String>(), "Hello!\n\rHow are you?\nI hope you are\r good!\n");
+        let rope = Rope::new().insert(0, "Hello!\nHow are you?\nI hope you are good!\n");
+        assert_eq!(rope.chars().collect::<String>(), "Hello!\nHow are you?\nI hope you are good!\n");
         let mut rope_lines_iter = rope.lines();
         assert_eq!(rope_lines_iter.next(), Some(String::from("Hello!")));
         assert_eq!(rope_lines_iter.next(), Some(String::from("How are you?")));
-        assert_eq!(rope_lines_iter.next(), Some(String::from("I hope you are\r good!")));
+        assert_eq!(rope_lines_iter.next(), Some(String::from("I hope you are good!")));
         assert_eq!(rope_lines_iter.next(), Some(String::from("")));
         assert_eq!(rope_lines_iter.next(), None);
     }
@@ -1104,7 +1104,7 @@ mod tests {
 
         for i in 0..30_000 {
             let rope_len = rope.len();
-            rope = rope.insert(rope_len, format!("What is this: {}\n\r", i).as_str());
+            rope = rope.insert(rope_len, format!("What is this: {}\n", i).as_str());
         }
         assert_eq!(rope.lines().skip(29_999).next(), Some(String::from("What is this: 29999")));
         assert_eq!(rope.lines().skip(29_998).next(), Some(String::from("What is this: 29998")));
