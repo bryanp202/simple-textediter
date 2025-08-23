@@ -7,7 +7,7 @@ use windowstate::WindowState;
 use cursor::Cursor;
 use std::{error::Error, ffi::CString, path::PathBuf, str::FromStr, sync::{Arc, Mutex}};
 
-use sdl3::{dialog::{show_open_file_dialog, show_save_file_dialog, DialogError, DialogFileFilter}, event::{Event, WindowEvent}, keyboard::Keycode, mouse::MouseButton, pixels::Color, rect::Rect, render::{Canvas, FPoint, TextureCreator, TextureQuery}, sys::{clipboard::SDL_SetClipboardText, events::SDL_WindowEvent, keyboard::{SDL_GetModState, SDL_StartTextInput, SDL_StopTextInput}, keycode::SDL_KMOD_CTRL}, ttf::{Font, FontStyle, Sdl3TtfContext}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
+use sdl3::{dialog::{show_open_file_dialog, show_save_file_dialog, DialogFileFilter}, event::{Event, WindowEvent}, keyboard::Keycode, mouse::MouseButton, pixels::Color, rect::Rect, render::{Canvas, FPoint, TextureCreator, TextureQuery}, sys::{clipboard::SDL_SetClipboardText, events::SDL_WindowEvent, keyboard::{SDL_GetModState, SDL_StartTextInput, SDL_StopTextInput}, keycode::SDL_KMOD_CTRL}, ttf::{Font, FontStyle, Sdl3TtfContext}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
 
 use crate::{editor::rope::TextRope, vector::Vector2D};
 
