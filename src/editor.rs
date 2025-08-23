@@ -117,6 +117,7 @@ impl <'a> Editor<'a> {
                     } else {
                         self.cursor.pos().y
                     };
+                    self.cursor.reset_snap();
                     self.cursor.move_to(0, y, &mut self.window);
                     self.render_text = true;
                 },

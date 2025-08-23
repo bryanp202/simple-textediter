@@ -26,6 +26,10 @@ impl Cursor {
         }
     }
 
+    pub fn reset_snap(&mut self) {
+        self.snap_x = 0;
+    }
+
     pub fn pos(&self) -> Vector2D {
         self.pos
     }
