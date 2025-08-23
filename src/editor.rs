@@ -256,6 +256,15 @@ impl <'a> Editor<'a> {
                     self.line_padding,
                     &mut self.window,
                 ),
+                Event::MouseWheel { y, .. } => {
+                    if y > 0.0 {
+                        self.window.scroll_up(y as usize);
+                    } else {
+                        let max_lines = self.text.line_count();
+                        self.window.scroll_down((-y) as usize, max_lines);
+                    }
+                    self.render_text = true;
+                },
                 _ => {},
             }
         }

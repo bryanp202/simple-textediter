@@ -36,6 +36,14 @@ impl WindowState {
         self.line_char_count
     }
 
+    pub fn scroll_up(&mut self, distance: usize) {
+        self.start_line = self.start_line.saturating_sub(distance);
+    }
+
+    pub fn scroll_down(&mut self, distance: usize, max_line_count: usize) {
+        self.start_line = (self.start_line + distance).min(max_line_count.saturating_sub(self.line_count));
+    }
+
     pub fn adjust_focus(&mut self, x: usize, y: usize) {
         self.start_char = if x < self.start_char {
             x
