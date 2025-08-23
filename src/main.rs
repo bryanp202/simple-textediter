@@ -6,6 +6,7 @@ pub mod vector;
 use std::process;
 use std::time::{Duration, Instant};
 
+use sdl3::sys::video::SDL_SetWindowMinimumSize;
 use sdl3::ttf;
 use crate::editor::Editor;
 
@@ -21,6 +22,8 @@ pub fn run(starting_file: Option<String>) {
     const FRAME_DELTA: Duration = Duration::from_nanos(1_000_000_000 / FRAME_RATE);
     const INIT_WINDOW_WIDTH: u32 = 800;
     const INIT_WINDOW_HEIGHT: u32 = 600;
+    const MIN_WINDOW_WIDTH: i32 = 400;
+    const MIN_WINDOW_HEIGHT: i32 = 300;
     const WINDOW_NAME: &str = "Text Editor";
 
     let sdl_context = sdl3::init().unwrap_or_else(|err| {
@@ -46,6 +49,7 @@ pub fn run(starting_file: Option<String>) {
             eprintln!("Failed to create window \"{WINDOW_NAME}\": {}", err.to_string());
             process::exit(1);
         });
+    unsafe { SDL_SetWindowMinimumSize(window.raw(), MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT); }
 
     let events = sdl_context.event_pump().unwrap_or_else(|err| {
         eprintln!("Failed to create event pump: {}", err.to_string());

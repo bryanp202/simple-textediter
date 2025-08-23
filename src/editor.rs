@@ -12,7 +12,7 @@ use sdl3::{dialog::{show_open_file_dialog, show_save_file_dialog, DialogFileFilt
 use crate::{editor::rope::TextRope, vector::Vector2D};
 
 const DEFAULT_FONT_PATH: &str = "C:\\Windows\\Fonts\\consola.ttf";
-const DEFAULT_FONT_SIZE: f32 = 32.0;
+const DEFAULT_FONT_SIZE: f32 = 24.0;
 const DEFAULT_FONT_STYLE: FontStyle = FontStyle::NORMAL;
 const DEFAULT_BACKGROUND_COLOR: Color = Color::RGB(20, 20, 20);
 const DEFAULT_FONT_COLOR: Color = Color::RGB(180, 225, 225);
