@@ -1,3 +1,5 @@
+use crate::editor::rope::TextRope;
+
 pub struct WindowState {
     start_line: usize,
     start_char: usize,
@@ -44,8 +46,8 @@ impl WindowState {
         self.start_line = (self.start_line + distance).min(max_line_count.saturating_sub(self.line_count));
     }
 
-    pub fn adjust_focus(&mut self, x: usize, y: usize) {
-        self.start_char = if x < self.start_char {
+    pub fn adjust_focus(&mut self, x: usize, y: usize, text_data: &TextRope) {
+        let new_char_start = if x < self.start_char {
             x
         } else if x + 1 >= self.start_char + self.line_char_count {
             x + 1 - self.line_char_count
@@ -53,13 +55,16 @@ impl WindowState {
             self.start_char
         };
 
-        self.start_line = if y < self.start_line {
+        let new_line_start = if y < self.start_line {
             y
         } else if y + 1 >= self.start_line + self.line_count {
             y + 1 - self.line_count
         } else {
             self.start_line
         };
+
+        self.start_char = new_char_start.min(text_data.lines().nth(y).unwrap().chars().count().saturating_sub(self.line_char_count / 4));
+        self.start_line = new_line_start.min(text_data.line_count().saturating_sub(self.line_count));
     }
 }
 

@@ -118,7 +118,7 @@ impl <'a> Editor<'a> {
                         self.cursor.pos().y
                     };
                     self.cursor.reset_snap();
-                    self.cursor.move_to(0, y, &mut self.window);
+                    self.cursor.move_to(0, y, &mut self.window, &self.text);
                     self.render_text = true;
                 },
                 Event::KeyDown { keycode: Some(Keycode::Delete), .. } => Self::delete_text(
@@ -337,7 +337,7 @@ impl <'a> Editor<'a> {
         
         let normalized_data = data.replace("\r\n", "\n");
         self.text = TextRope::new().append(&normalized_data);
-        self.cursor.move_to(0, 0, &mut self.window);
+        self.cursor.move_to(0, 0, &mut self.window, &self.text);
         self.render_text = true;
     }
 
@@ -352,7 +352,7 @@ impl <'a> Editor<'a> {
             
             let normalized_data = data.replace("\r\n", "\n");
             self.text = TextRope::new().append(&normalized_data);
-            self.cursor.move_to(0, 0, &mut self.window);
+            self.cursor.move_to(0, 0, &mut self.window, &self.text);
             self.render_text = true;
         }
     }
@@ -426,7 +426,7 @@ impl <'a> Editor<'a> {
 
         let old_text = std::mem::take(text);
         *text = old_text.insert(index, "\n");
-        cursor.ret(window);
+        cursor.ret(window, text);
         *render_text = true;
     }
 

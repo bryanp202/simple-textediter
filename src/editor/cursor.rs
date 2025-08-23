@@ -62,14 +62,14 @@ impl Cursor {
             }
         };
         self.snap_x = new_x;
-        self.move_to(new_x, new_y, window)
+        self.move_to(new_x, new_y, window, text_data)
     }
 
     pub fn shift_y(&mut self, amt: isize, text_data: &TextRope, window: &mut WindowState) {
         let new_y = (self.pos.y as isize).saturating_add(amt).clamp(0, text_data.line_count() as isize  - 1) as u32;
         let line_len = text_data.lines().nth(new_y as usize).unwrap().chars().count() as u32;
         let new_x = self.pos.x.max(self.snap_x).min(line_len);
-        self.move_to(new_x, new_y, window)
+        self.move_to(new_x, new_y, window, text_data)
     }
 
     pub fn left_click_press(&mut self, click_x: f32, click_y: f32, text_data: &TextRope, text_pad: u32, line_pad: u32, window: &mut WindowState) {
@@ -85,16 +85,16 @@ impl Cursor {
         let new_x = new_x.min(text_data.lines().nth(new_y as usize).unwrap().chars().count());
         self.snap_x = new_x as u32;
 
-        self.move_to(new_x as u32, new_y as u32, window)
+        self.move_to(new_x as u32, new_y as u32, window, text_data)
     }
 
-    pub fn ret(&mut self, window: &mut WindowState) {
+    pub fn ret(&mut self, window: &mut WindowState, text_data: &TextRope) {
         self.snap_x = 0;
-        self.move_to(0, self.pos.y + 1, window)
+        self.move_to(0, self.pos.y + 1, window, text_data)
     }
 
-    pub fn move_to(&mut self, x: u32, y: u32, window: &mut WindowState) {
-        window.adjust_focus(x as usize, y as usize);
+    pub fn move_to(&mut self, x: u32, y: u32, window: &mut WindowState, text_data: &TextRope) {
+        window.adjust_focus(x as usize, y as usize, text_data);
         self.pos.x = x;
         self.pos.y = y;
         self.reset_blink()
