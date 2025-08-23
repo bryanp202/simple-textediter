@@ -14,6 +14,10 @@ impl TextRope {
     }
 
     pub fn insert(self, index: usize, insert_text: &str) -> Self {
+        if insert_text.len() == 0 {
+            return self;
+        }
+
         let char_count = insert_text.chars().count();
         let line_count = Rope::get_line_count(insert_text);
         Self {

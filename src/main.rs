@@ -6,6 +6,7 @@ pub mod vector;
 use std::process;
 use std::time::{Duration, Instant};
 
+use sdl3::sys::mouse::{SDL_CreateSystemCursor, SDL_SetCursor, SDL_SystemCursor};
 use sdl3::sys::video::SDL_SetWindowMinimumSize;
 use sdl3::ttf;
 use crate::editor::Editor;
@@ -64,6 +65,8 @@ pub fn run(starting_file: Option<String>) {
     if let Some(starting_file) = starting_file {
         state.open_file(starting_file);
     }
+
+    _ = unsafe { SDL_SetCursor(SDL_CreateSystemCursor(SDL_SystemCursor::TEXT)) };
 
     while !state.should_quit() {
         let frame_start = Instant::now();
