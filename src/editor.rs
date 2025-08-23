@@ -7,7 +7,7 @@ use windowstate::WindowState;
 use cursor::Cursor;
 use std::{error::Error, ffi::CString, path::PathBuf, str::FromStr, sync::{Arc, Mutex}};
 
-use sdl3::{dialog::{show_open_file_dialog, show_save_file_dialog, DialogError, DialogFileFilter}, event::{Event, WindowEvent}, keyboard::Keycode, pixels::Color, rect::Rect, render::{Canvas, FPoint, TextureCreator, TextureQuery}, sys::{clipboard::SDL_SetClipboardText, events::SDL_WindowEvent, keyboard::{SDL_GetModState, SDL_StartTextInput, SDL_StopTextInput}, keycode::SDL_KMOD_CTRL}, ttf::{Font, FontStyle, Sdl3TtfContext}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
+use sdl3::{dialog::{show_open_file_dialog, show_save_file_dialog, DialogError, DialogFileFilter}, event::{Event, WindowEvent}, keyboard::Keycode, mouse::MouseButton, pixels::Color, rect::Rect, render::{Canvas, FPoint, TextureCreator, TextureQuery}, sys::{clipboard::SDL_SetClipboardText, events::SDL_WindowEvent, keyboard::{SDL_GetModState, SDL_StartTextInput, SDL_StopTextInput}, keycode::SDL_KMOD_CTRL}, ttf::{Font, FontStyle, Sdl3TtfContext}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
 
 use crate::{editor::rope::TextRope, vector::Vector2D};
 
@@ -18,6 +18,8 @@ const DEFAULT_BACKGROUND_COLOR: Color = Color::RGB(20, 20, 20);
 const DEFAULT_FONT_COLOR: Color = Color::RGB(180, 225, 225);
 const DEFAULT_TEXT_PADDING: u32 = 16;
 const DEFAULT_LINE_PADDING: u32 = 2;
+const TAB_SPACE_COUNT: u32 = 2;
+const TAB_SPACE_STRING: &str = "  ";
 
 pub enum TextAlignment {
     LEFT,
@@ -107,6 +109,15 @@ impl <'a> Editor<'a> {
                     self.window.resize(w_w as u32, w_h as u32, text_width, text_height);
                     self.render_text = true;
                 }
+                Event::KeyDown { keycode: Some(Keycode::Home), .. } => {
+                    let y = if unsafe {SDL_GetModState()} & SDL_KMOD_CTRL > 0 {
+                        0
+                    } else {
+                        self.cursor.pos().y
+                    };
+                    self.cursor.move_to(0, y);
+                    self.render_text = true;
+                },
                 Event::KeyDown { keycode: Some(Keycode::Delete), .. } => Self::delete_text(
                     &mut self.text,
                     &mut self.cursor,
@@ -122,6 +133,11 @@ impl <'a> Editor<'a> {
                     &mut self.text,
                     &mut self.cursor,
                     &mut self.render_text
+                ),
+                Event::KeyDown { keycode: Some(Keycode::Tab), .. } => Self::tab_text(
+                    &mut self.text,
+                    &mut self.cursor,
+                    &mut self.render_text,
                 ),
                 Event::KeyDown { keycode: Some(Keycode::Up), .. } => {
                     self.cursor.shift_y(-1, &self.text);
@@ -154,8 +170,12 @@ impl <'a> Editor<'a> {
                 if unsafe { SDL_GetModState() } & SDL_KMOD_CTRL > 0 => {
                     let filters = [
                         DialogFileFilter {
-                            name: "Text",
+                            name: "Text Document (*.txt)",
                             pattern: "txt",
+                        },
+                        DialogFileFilter {
+                            name: "All Files (*.*)",
+                            pattern: "*",
                         },
                     ];
                     let file_path_ref = self.open_file_paths.clone();
@@ -179,8 +199,12 @@ impl <'a> Editor<'a> {
                 if unsafe { SDL_GetModState() } & SDL_KMOD_CTRL > 0 => {
                     let filters = [
                         DialogFileFilter {
-                            name: "Text",
+                            name: "Text Document (*.txt)",
                             pattern: "txt",
+                        },
+                        DialogFileFilter {
+                            name: "All Files (*.*)",
+                            pattern: "*",
                         },
                     ];
                     let file_path_ref = self.save_file_paths.clone();
@@ -189,12 +213,17 @@ impl <'a> Editor<'a> {
                         None::<PathBuf>,
                         self.context.canvas.window(),
                         Box::new(move |result, _| {
-                            let Ok(file_paths) = result else { return };
+                            let Ok(mut file_paths) = result else { return };
                             let mut open_file_paths = file_path_ref.lock().unwrap_or_else(|mut err| {
                                 **err.get_mut() = vec![];
                                 file_path_ref.clear_poison();
                                 err.into_inner()
                             });
+                            for file_path in file_paths.iter_mut() {
+                                if file_path.extension() == None {
+                                    file_path.set_extension("txt");
+                                }
+                            }
                             open_file_paths.extend_from_slice(&file_paths);
                         }),
                         ).map_err(|err| err.to_string())?;
@@ -204,6 +233,15 @@ impl <'a> Editor<'a> {
                     &mut self.cursor,
                     &mut self.render_text,
                     &input_text
+                ),
+                Event::MouseButtonDown { mouse_btn: MouseButton::Left, x: click_x, y: click_y, .. } => Self::left_click(
+                    click_x,
+                    click_y,
+                    &mut self.text,
+                    &mut self.cursor,
+                    &mut self.render_text,
+                    self.text_padding,
+                self.line_padding,
                 ),
                 _ => {},
             }
@@ -225,7 +263,7 @@ impl <'a> Editor<'a> {
         let (screen_w, _) = self.context.canvas.window().size();
 
         for line_text in self.text.lines().skip(self.window.get_first_line()).take(self.window.lines()) {
-            let trimmed_text = line_text.trim();
+            let trimmed_text = line_text.trim_end();
             let text_to_render = if trimmed_text.len() != 0 {
                 trimmed_text.chars().take(self.window.chars()).collect::<String>()
             } else {
@@ -270,6 +308,15 @@ impl <'a> Editor<'a> {
 }
 
 impl <'a> Editor<'a> {
+    pub fn open_file(&mut self, file_path: String) {
+        let data = std::fs::read_to_string(file_path).unwrap_or_else(|_| String::new());
+        
+        let normalized_data = data.replace("\r\n", "\n");
+        self.text = TextRope::new().append(&normalized_data);
+        self.cursor.move_to(0, 0);
+        self.render_text = true;
+    }
+
     fn check_open_files(&mut self) {
         let mut open_file_paths = self.open_file_paths.lock().unwrap_or_else(|mut err| {
             **err.get_mut() = vec![];
@@ -277,8 +324,8 @@ impl <'a> Editor<'a> {
             err.into_inner()
         });
         while let Some(file_path) = open_file_paths.pop() {
-            let os_file_path = file_path.into_os_string();
-            let data = std::fs::read_to_string(os_file_path).unwrap_or_else(|_| String::new());
+            let data = std::fs::read_to_string(file_path).unwrap_or_else(|_| String::new());
+            
             let normalized_data = data.replace("\r\n", "\n");
             self.text = TextRope::new().append(&normalized_data);
             self.cursor.move_to(0, 0);
@@ -293,8 +340,7 @@ impl <'a> Editor<'a> {
             err.into_inner()
         });
         while let Some(file_path) = save_file_paths.pop() {
-            let os_file_path = file_path.into_os_string();
-            _ = std::fs::write(os_file_path, Self::export(&self.text));
+            _ = std::fs::write(file_path, Self::export(&self.text));
             self.render_text = true;
         }
     }
@@ -357,6 +403,31 @@ impl <'a> Editor<'a> {
         let old_text = std::mem::take(text);
         *text = old_text.insert(index, "\n");
         cursor.ret();
+        *render_text = true;
+    }
+
+    fn tab_text(text: &mut TextRope, cursor: &mut Cursor, render_text: &mut bool) {
+        let Vector2D {x, y} = cursor.pos();
+        let line_index = text.get_line_index(y as usize);
+        let index = line_index + x as usize;
+
+        let spaces = TAB_SPACE_COUNT - x % TAB_SPACE_COUNT;
+        let old_text = std::mem::take(text);
+        *text = old_text.insert(index, &TAB_SPACE_STRING[..spaces as usize]);
+        cursor.shift_x(spaces as isize, text);
+        *render_text = true;
+    }
+
+    fn left_click(
+        click_x: f32,
+        click_y: f32,
+        text: &mut TextRope,
+        cursor: &mut Cursor,
+        render_text: &mut bool,
+        text_pad: u32,
+        line_pad: u32
+    ) {
+        cursor.click(click_x, click_y, text, text_pad, line_pad);
         *render_text = true;
     }
 }

@@ -30,10 +30,6 @@ impl Cursor {
         self.pos
     }
 
-    pub fn draw_context(&self) -> (f32, Vector2D) {
-        (self.height, self.pos)
-    }
-
     pub fn shift_x(&mut self, amt: isize, text_data: &TextRope) {
         let shifted_x = (self.pos.x as isize).saturating_add(amt);
         let mut new_x = shifted_x as u32;
@@ -70,6 +66,22 @@ impl Cursor {
         let line_len = text_data.lines().nth(new_y as usize).unwrap().chars().count() as u32;
         let new_x = self.pos.x.max(self.snap_x).min(line_len);
         self.move_to(new_x, new_y)
+    }
+
+    pub fn click(&mut self, click_x: f32, click_y: f32, text_data: &TextRope, text_pad: u32, line_pad: u32) {
+        let text_pad = text_pad as f32;
+        let line_pad = line_pad as f32;
+    
+        let new_x = (click_x - text_pad + self.width / 2.0) / self.width;
+        let new_x = new_x.max(0.0) as u32;
+        let new_y = (click_y - text_pad) / (self.height + line_pad);
+        let new_y = new_y.max(0.0) as u32;
+
+        let new_y = new_y.min(text_data.line_count() as u32 - 1);
+        let new_x = new_x.min(text_data.lines().nth(new_y as usize).unwrap().chars().count() as u32);
+        self.snap_x = new_x;
+
+        self.move_to(new_x, new_y);
     }
 
     pub fn ret(&mut self) {

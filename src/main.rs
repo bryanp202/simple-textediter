@@ -1,4 +1,4 @@
-#![windows_subsystem = "windows"]
+//#![windows_subsystem = "windows"]
 extern crate sdl3;
 
 mod editor;
@@ -7,16 +7,16 @@ use std::process;
 use std::time::{Duration, Instant};
 
 use sdl3::ttf;
-
 use crate::editor::Editor;
-use crate::editor::rope::Rope;
 
 pub fn main() {
-    unsafe { std::env::set_var("RUST_BACKTRACE", "1"); }
-    run();    
+    //unsafe { std::env::set_var("RUST_BACKTRACE", "1"); }
+    let mut args = std::env::args();
+    let starting_file = args.nth(1);
+    run(starting_file);
 }
 
-pub fn run() {
+pub fn run(starting_file: Option<String>) {
     const FRAME_RATE: u64 = 120;
     const FRAME_DELTA: Duration = Duration::from_nanos(1_000_000_000 / FRAME_RATE);
     const INIT_WINDOW_WIDTH: u32 = 800;
@@ -53,9 +53,13 @@ pub fn run() {
     });
 
     let mut state = Editor::build(sdl_context, video_subsytem, ttf_context, events, window).unwrap_or_else(|err| {
-        eprintln!("Failed to create event pump: {}", err.to_string());
+        eprintln!("Failed to create editor state: {}", err.to_string());
         process::exit(1);
     });
+
+    if let Some(starting_file) = starting_file {
+        state.open_file(starting_file);
+    }
 
     while !state.should_quit() {
         let frame_start = Instant::now();
