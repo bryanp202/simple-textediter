@@ -1,4 +1,4 @@
-#![windows_subsystem = "windows"]
+//#![windows_subsystem = "windows"]
 extern crate sdl3;
 
 mod editor;
@@ -19,7 +19,7 @@ pub fn main() {
 }
 
 pub fn run(starting_file: Option<String>) {
-    const FRAME_RATE: u64 = 120;
+    const FRAME_RATE: u64 = 100;
     const FRAME_DELTA: Duration = Duration::from_nanos(1_000_000_000 / FRAME_RATE);
     const INIT_WINDOW_WIDTH: u32 = 800;
     const INIT_WINDOW_HEIGHT: u32 = 600;

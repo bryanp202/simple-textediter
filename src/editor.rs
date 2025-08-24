@@ -12,11 +12,11 @@ use sdl3::{dialog::{show_open_file_dialog, show_save_file_dialog, DialogFileFilt
 use crate::{editor::rope::TextRope, vector::Vector2D};
 
 const DEFAULT_FONT_PATH: &str = "C:\\Windows\\Fonts\\consola.ttf";
-const DEFAULT_FONT_SIZE: f32 = 24.0;
+const DEFAULT_FONT_SIZE: f32 = 56.0;
 const DEFAULT_FONT_STYLE: FontStyle = FontStyle::NORMAL;
 const DEFAULT_BACKGROUND_COLOR: Color = Color::RGB(20, 20, 20);
 const DEFAULT_FONT_COLOR: Color = Color::RGB(180, 225, 225);
-const DEFAULT_FONT_SELECT_COLOR: Color = Color::RGB(100, 100, 200);
+const DEFAULT_FONT_SELECT_COLOR: Color = Color::RGB(80, 80, 80);
 const DEFAULT_TEXT_PADDING: u32 = 16;
 const DEFAULT_LINE_PADDING: u32 = 2;
 const TAB_SPACE_COUNT: u32 = 2;
@@ -186,7 +186,8 @@ impl <'a> Editor<'a> {
                 },
                 Event::KeyDown { keycode: Some(Keycode::C), ..}
                 if unsafe {SDL_GetModState()} & SDL_KMOD_CTRL > 0 => {
-                    let raw_text = CString::from_str(Self::export(&self.text).as_str())?;
+                    let selected_text = Self::get_selected_text(&self.cursor, &self.text);
+                    let raw_text = CString::from_str(&selected_text)?;
                     unsafe {SDL_SetClipboardText(raw_text.as_ptr()); }
                 }
                 Event::KeyDown { keycode: Some(Keycode::V), ..}
@@ -321,9 +322,18 @@ impl <'a> Editor<'a> {
         let mut start_y = self.text_padding;
         let (screen_w, _) = self.context.canvas.window().size();
 
-        for line_text in self.text.lines().skip(self.window.get_first_line()).take(self.window.lines()) {
-            let trimmed_text = line_text.trim_end();
-            let focused_text = trimmed_text.chars().skip(self.window.get_first_char()).take(self.window.chars()).collect::<String>();
+        for (line_num, line_text) in self.text.lines().enumerate().skip(self.window.get_first_line()).take(self.window.lines()) {
+            let focused_text = line_text.chars().skip(self.window.get_first_char()).take(self.window.chars()).collect::<String>();
+            draw::selection_box(
+                &mut self.context.canvas,
+                &self.cursor,
+                self.text_padding,
+                self.line_padding,
+                &self.window, line_num,
+                focused_text.chars().count(),
+                self.font_select_color,
+            )?;
+
             let text_to_render = if focused_text.len() != 0 {
                 focused_text
             } else {
@@ -481,16 +491,16 @@ impl <'a> Editor<'a> {
         let old_text = std::mem::take(text);
         *text = old_text.insert(index, text_chunk);
 
-        let text_len = text_chunk.chars().scan(false, |skip_return, c| {
-            *skip_return = c == '\n';
-            Some((*skip_return, c))
-        }).filter(|&(skip_return, c)| !skip_return || c != '\r').count() as isize;
+        let text_len = text_chunk.chars().filter(|&c| c != '\n').count() as isize;
 
         cursor.shift_x(text_len, text, window);
         *render_text = true;
     }
 
     fn return_text(text: &mut TextRope, cursor: &mut Cursor, render_text: &mut bool, window: &mut WindowState) {
+        if let Some(select_pos) =  cursor.select_start_pos() {
+            return Self::replace_selected_text(text, cursor, render_text, window, select_pos, "\n");
+        }
         let index = Self::calculate_index_from_pos(text, cursor.pos());
 
         let old_text = std::mem::take(text);
@@ -502,10 +512,15 @@ impl <'a> Editor<'a> {
     fn tab_text(text: &mut TextRope, cursor: &mut Cursor, render_text: &mut bool, window: &mut WindowState) {
         let pos @ Vector2D {x, ..} = cursor.pos();
         let index = Self::calculate_index_from_pos(text, pos);
-
         let spaces = TAB_SPACE_COUNT - x % TAB_SPACE_COUNT;
+        let insert_spaces = &TAB_SPACE_STRING[..spaces as usize];
         let old_text = std::mem::take(text);
-        *text = old_text.insert(index, &TAB_SPACE_STRING[..spaces as usize]);
+
+        if let Some(select_pos) =  cursor.select_start_pos() {
+            return Self::replace_selected_text(text, cursor, render_text, window, select_pos, insert_spaces);
+        }
+        
+        *text = old_text.insert(index, insert_spaces);
         cursor.shift_x(spaces as isize, text, window);
         *render_text = true;
     }
@@ -534,17 +549,30 @@ impl <'a> Editor<'a> {
         line_pad: u32,
         window: &mut WindowState,
     ) {
-        *render_text = cursor.mouse_move(click_x, click_y, text, text_pad, line_pad, window);
+        *render_text |= cursor.mouse_move(click_x, click_y, text, text_pad, line_pad, window);
     }
 
     fn release_left_click(cursor: &mut Cursor) {
         cursor.left_click_release();
     }
 
-    fn calculate_index_from_pos(text: &mut TextRope, pos: Vector2D) -> usize {
+    fn calculate_index_from_pos(text: &TextRope, pos: Vector2D) -> usize {
         let Vector2D {x, y} = pos;
         let line_index = text.get_line_index(y as usize);
         line_index + x as usize
+    }
+
+    fn get_selected_text(cursor: &Cursor, text: &TextRope) -> String {
+        let Some(select_pos) = cursor.select_start_pos() else {
+            return String::new();
+        };
+        let cursor_pos = cursor.pos();
+        let select_start = Self::calculate_index_from_pos(text, select_pos);
+        let current_index = Self::calculate_index_from_pos(text, cursor_pos);
+        let len = select_start.abs_diff(current_index);
+        let index = select_start.min(current_index);
+
+        text.chars().skip(index).take(len).collect()
     }
 }
 

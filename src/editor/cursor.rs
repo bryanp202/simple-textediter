@@ -32,6 +32,10 @@ impl Cursor {
         self.pos
     }
 
+    pub fn get_dim(&self) -> (f32, f32) {
+        (self.width, self.height)
+    }
+
     pub fn select_start_pos(&self) -> Option<Vector2D> {
         if let Some(select_start) = self.select_start_pos {
             if select_start.x != self.pos.x || select_start.y != self.pos.y {
@@ -110,6 +114,7 @@ impl Cursor {
 
     pub fn ret(&mut self, window: &mut WindowState, text_data: &TextRope) {
         self.snap_x = 0;
+        self.select_start_pos = None;
         self.move_to(0, self.pos.y + 1, window, text_data)
     }
 
@@ -118,29 +123,13 @@ impl Cursor {
         self.blink_on = true;
     }
 
-    pub fn reset_select(&mut self) {
-        self.select_start_pos = None;
-    }
-
     pub fn draw(&mut self, canvas: &mut Canvas<Window>, text_pad: u32, line_pad: u32, window: &WindowState) -> Result<(), Box<dyn Error>> {
         if !self.blink_on {
             return Ok(());
         }
 
-        let window_first_line = window.get_first_line() as u32;
-        let window_first_char = window.get_first_char() as u32;
-        let window_char_len = window.chars() as u32;
-        let window_line_len = window.lines() as u32;
-
-        let shifted_x = if self.pos.x < window_first_char || self.pos.x >= window_char_len + window_first_char {
+        let Some(Vector2D {x: shifted_x, y: shifted_y}) = window.in_screen_bound(self.pos.x, self.pos.y) else {
             return Ok(());
-        } else {
-            self.pos.x - window_first_char
-        };
-        let shifted_y = if self.pos.y < window_first_line || self.pos.y >= window_line_len + window_first_line {
-            return Ok(());
-        } else {
-            self.pos.y - window_first_line
         };
 
         canvas.set_draw_color(self.color);
@@ -204,7 +193,7 @@ impl Default for Cursor {
             },
             select_start_pos: None,
             snap_x: 0,
-            blink_on: false,
+            blink_on: true,
             left_down: false,
             blink_period: DEFAULT_BLINK_PERIOD,
             color: DEFAULT_CUSROR_COLOR,

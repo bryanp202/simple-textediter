@@ -1,4 +1,4 @@
-use crate::editor::rope::TextRope;
+use crate::{editor::rope::TextRope, vector::Vector2D};
 
 pub struct WindowState {
     start_line: usize,
@@ -20,6 +20,25 @@ impl WindowState {
         let text_height = text_height + line_pad;
         self.line_count = (window_height / text_height) as usize;
         self.line_char_count = (window_width / text_width) as usize;
+    }
+
+    pub fn in_screen_bound(&self, x: u32, y: u32) -> Option<Vector2D> {
+        let window_first_char = self.start_char as u32;
+        let window_first_line = self.start_line as u32;
+        let window_char_len = self.line_char_count as u32;
+        let window_line_len = self.line_count as u32;
+
+        let shifted_x = if x < window_first_char || x >= window_char_len + window_first_char {
+            return None;
+        } else {
+            x - window_first_char
+        };
+        let shifted_y = if y < window_first_line || y >= window_line_len + window_first_line {
+            return None;
+        } else {
+            y - window_first_line
+        };
+        Some(Vector2D {x: shifted_x, y: shifted_y })
     }
 
     pub fn get_first_line(&self) -> usize {
