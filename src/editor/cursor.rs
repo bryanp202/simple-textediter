@@ -199,7 +199,7 @@ impl Cursor {
             } else {
                 first_left_space = None;
             }
-            if c.is_alphanumeric() {
+            if c.is_alphanumeric() || c == '_' {
                 first_alpha_space = first_alpha_space.or(Some(i));
             } else {
                 first_alpha_space = None;
@@ -217,7 +217,7 @@ impl Cursor {
             (first_left_space.unwrap_or(char_num as usize), last_space_index)
         } else {
             let last_alpha_index = char_iter
-                .take_while(|&(_, c)| c.is_alphanumeric())
+                .take_while(|&(_, c)| c.is_alphanumeric() || c == '_')
                 .last()
                 .map_or(char_num as usize, |(i, _)| i);
             (first_alpha_space.map_or(char_num as usize, |x| x), last_alpha_index + 1)
