@@ -413,7 +413,7 @@ impl Rope {
     fn _line_start_index(&self, target_line: usize) -> usize {
         match self {
             Rope::Branch { line, left, right, weight, .. } => {
-                if target_line <= *line {
+                if target_line < *line {
                     left._line_start_index(target_line)
                 } else {
                     weight + right._line_start_index(target_line - line)
@@ -424,7 +424,7 @@ impl Rope {
                     .enumerate()
                     .filter(|&(_, c)| c == '\n')
                     .map(|(i, _)| i)
-                    .nth(target_line - 1)
+                    .nth(target_line)
                     .unwrap();
                 target_newline_index + 1
             }

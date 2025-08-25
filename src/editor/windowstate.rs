@@ -15,7 +15,7 @@ pub struct WindowState {
 }
 
 impl WindowState {
-    const SCROLL_FACTOR: usize = 4;
+    const SCROLL_FACTOR: usize = 8;
     pub fn new(window_width: u32, window_height: u32, text_width: u32, text_height: u32, text_padding: u32, line_padding: u32) -> Self {
         let mut new_window_state = Self {
             text_padding,
