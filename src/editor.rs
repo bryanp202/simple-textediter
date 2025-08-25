@@ -12,7 +12,7 @@ use sdl3::{dialog::{show_open_file_dialog, show_save_file_dialog, DialogFileFilt
 use crate::{editor::rope::TextRope, vector::Vector2D};
 
 const DEFAULT_FONT_PATH: &str = "C:\\Windows\\Fonts\\consola.ttf";
-const DEFAULT_FONT_SIZE: f32 = 56.0;
+const DEFAULT_FONT_SIZE: f32 = 24.0;
 const DEFAULT_FONT_STYLE: FontStyle = FontStyle::NORMAL;
 const DEFAULT_BACKGROUND_COLOR: Color = Color::RGB(20, 20, 20);
 const DEFAULT_FONT_COLOR: Color = Color::RGB(180, 225, 225);
@@ -296,6 +296,7 @@ impl <'a> Editor<'a> {
         let (text_padding, line_padding) = self.window.get_padding();
         let mut start_y = text_padding;
         let (screen_w, _) = self.context.canvas.window().size();
+        let (_, height) = self.font.size_of_char('|')?;
 
         for (line_num, line_text) in self.text.lines().enumerate().skip(self.window.get_first_line()).take(self.window.lines()) {
             let focused_text = line_text.chars().skip(self.window.get_first_char()).take(self.window.chars()).collect::<String>();
@@ -324,7 +325,6 @@ impl <'a> Editor<'a> {
                 .create_texture_from_surface(&surface)?;
 
             let TextureQuery {width, .. } = texture.query();
-            let (_, height) = self.font.size_of_char('|')?;
 
             let target = draw::text_target_aligned(&self.alignment, text_padding, start_y, width, height, screen_w);
             self.context.canvas.copy(&texture, None, Some(target.into()))?;
@@ -333,8 +333,38 @@ impl <'a> Editor<'a> {
         }
 
         self.cursor.draw(&mut self.context.canvas, &self.window)?;
-
+        self.draw_console()?;
         self.context.canvas.present();
+
+        Ok(())
+    }
+
+    fn draw_console(&mut self) -> Result<(), Box<dyn Error>> {
+        let Vector2D { x, y } = self.cursor.pos();
+        let cursor_pos_str = format!("Ln: {}, Col {}", y + 1, x + 1);
+        let surface = self
+                .font
+                .render(&cursor_pos_str)
+                .blended(self.font_color)
+                .map_err(|err| format!("On line: {:?}: {}", cursor_pos_str, err))?;
+        let texture = self
+            .context.texture_creater
+            .create_texture_from_surface(&surface)?;
+
+        let TextureQuery {width, .. } = texture.query();
+        let (_, height) = self.font.size_of_char('|')?;
+        let (text_padding, _) = self.window.get_padding();
+        let (screen_w, screen_h) = self.context.canvas.window().size();
+        let cursor_pos_data_y = screen_h - text_padding - height;
+        let target = draw::text_target_aligned(
+            &TextAlignment::RIGHT,
+            text_padding,
+            cursor_pos_data_y,
+            width,
+            height,
+            screen_w,
+        );
+        self.context.canvas.copy(&texture, None, Some(target.into()))?;
 
         Ok(())
     }

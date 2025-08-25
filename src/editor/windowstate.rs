@@ -46,7 +46,7 @@ impl WindowState {
         let window_height = window_height.saturating_sub(self.text_padding);
         let window_width = window_width.saturating_sub(self.text_padding);
         let text_height = text_height + self.line_padding;
-        self.line_count = (window_height / text_height) as usize;
+        self.line_count = (window_height / text_height) as usize - 1;
         self.line_char_count = (window_width / text_width) as usize;
         self.should_render = true;
     }

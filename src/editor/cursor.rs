@@ -196,20 +196,22 @@ impl Cursor {
         for (i, c) in char_iter.by_ref().take(char_num as usize) {
             if c == ' ' {
                 first_left_space = first_left_space.or(Some(i));
-            } else if c.is_alphanumeric() {
-                first_alpha_space = first_alpha_space.or(Some(i));
-                first_left_space = None;
             } else {
                 first_left_space = None;
+            }
+            if c.is_alphanumeric() {
+                first_alpha_space = first_alpha_space.or(Some(i));
+            } else {
                 first_alpha_space = None;
             }
         }
-        let (start_x, end_x) = if let ' ' = char_iter.by_ref().next().map_or(' ', |(_, c)| c) {
+        let target_char_and_offset = char_iter.by_ref().next().map_or((0, ' '), |(_, c)| (1, c));
+        let (start_x, end_x) = if let (offset, ' ') = target_char_and_offset {
             let last_space_index = char_iter.by_ref()
                 .take_while(|&(_, c)| c == ' ')
                 .last()
-                .map_or_else(
-                    || if char_iter.next().is_some() { char_num + 1 } else { char_num } as usize,
+                .map_or(
+                    (char_num + offset) as usize,
                      |(i, _)| i + 1
                 );
             (first_left_space.unwrap_or(char_num as usize), last_space_index)

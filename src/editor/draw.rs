@@ -62,10 +62,10 @@ pub fn selection_box(
         if start_line != end_line {
             (start_char, line_len as u32)
         } else {
-            (start_char, end_char.min(line_len as u32))
+            (start_char, end_char)
         }
     } else if line_num == end_line as usize {
-        (0, end_char.min(line_len as u32))
+        (0, end_char)
     } else {
         (0, line_len as u32)
     };
@@ -79,7 +79,7 @@ pub fn selection_box(
     let x = adjusted_char * char_width + text_pad;
     let y   = adjusted_line * line_height + text_pad;
 
-    let chars = current_line_end_char - current_line_start_char;
+    let chars = (current_line_end_char - current_line_start_char).min(line_len as u32);
     let width = (chars * char_width).max(4);
 
     let frect = FRect::new(x as f32, y as f32, width as f32, char_height);
