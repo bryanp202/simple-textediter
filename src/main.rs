@@ -57,7 +57,7 @@ pub fn run(starting_file: Option<String>) {
         process::exit(1);
     });
 
-    let mut state = Editor::build(sdl_context, video_subsytem, ttf_context, events, window).unwrap_or_else(|err| {
+    let mut state = Editor::build(video_subsytem, ttf_context, events, window).unwrap_or_else(|err| {
         eprintln!("Failed to create editor state: {}", err.to_string());
         process::exit(1);
     });

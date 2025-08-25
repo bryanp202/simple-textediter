@@ -4,7 +4,6 @@ use std::error::Error;
 use sdl3::pixels::Color;
 use sdl3::render::FRect;
 use sdl3::{rect::Rect, render::Canvas, video::Window};
-use crate::editor::rope::TextRope;
 use crate::editor::{windowstate::WindowState, TextAlignment};
 use crate::editor::cursor::Cursor;
 use crate::vector::Vector2D;
@@ -35,8 +34,6 @@ fn text_target_right(padding: u32, start_y: u32, text_w: u32, text_h: u32, scree
 pub fn selection_box(
     canvas: &mut Canvas<Window>,
     cursor: &Cursor,
-    text_pad: u32,
-    line_pad: u32,
     window: &WindowState,
     line_num: usize,
     line_len: usize,
@@ -65,15 +62,16 @@ pub fn selection_box(
         if start_line != end_line {
             (start_char, line_len as u32)
         } else {
-            (start_char, end_char)
+            (start_char, end_char.min(line_len as u32))
         }
     } else if line_num == end_line as usize {
-        (0, end_char)
+        (0, end_char.min(line_len as u32))
     } else {
         (0, line_len as u32)
     };
 
-    let (char_width, char_height) = cursor.get_dim();
+    let (text_pad, line_pad) = window.get_padding();
+    let (char_width, char_height) = window.get_text_dim();
     let char_width = char_width as u32;
     let line_height = char_height as u32 + line_pad;
     let adjusted_char = current_line_start_char.saturating_sub(window.get_first_char() as u32);

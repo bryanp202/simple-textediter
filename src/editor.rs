@@ -7,7 +7,7 @@ use windowstate::WindowState;
 use cursor::Cursor;
 use std::{error::Error, ffi::CString, path::PathBuf, str::FromStr, sync::{Arc, Mutex}};
 
-use sdl3::{dialog::{show_open_file_dialog, show_save_file_dialog, DialogFileFilter}, event::{Event, WindowEvent}, keyboard::Keycode, mouse::{MouseButton}, pixels::Color, rect::Rect, render::{Canvas, FPoint, TextureCreator, TextureQuery}, sys::{clipboard::SDL_SetClipboardText, events::SDL_WindowEvent, keyboard::{SDL_GetModState, SDL_StartTextInput, SDL_StopTextInput}, keycode::{SDL_KMOD_CTRL, SDL_KMOD_NUM}, mouse::{SDL_CreateSystemCursor, SDL_SetCursor, SDL_SystemCursor}}, ttf::{Font, FontStyle, Sdl3TtfContext}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
+use sdl3::{dialog::{show_open_file_dialog, show_save_file_dialog, DialogFileFilter}, event::{Event, WindowEvent}, keyboard::Keycode, mouse::{MouseButton}, pixels::Color, render::{Canvas, TextureCreator, TextureQuery}, sys::{clipboard::SDL_SetClipboardText, keyboard::{SDL_GetModState, SDL_StartTextInput, SDL_StopTextInput}, keycode::{SDL_KMOD_CTRL, SDL_KMOD_NUM}}, ttf::{Font, FontStyle, Sdl3TtfContext}, video::{Window, WindowContext}, EventPump, VideoSubsystem};
 
 use crate::{editor::rope::TextRope, vector::Vector2D};
 
@@ -22,6 +22,7 @@ const DEFAULT_LINE_PADDING: u32 = 2;
 const TAB_SPACE_COUNT: u32 = 2;
 const TAB_SPACE_STRING: &str = "  ";
 
+#[allow(dead_code)]
 pub enum TextAlignment {
     LEFT,
     RIGHT,
@@ -31,13 +32,10 @@ pub enum TextAlignment {
 pub struct Editor <'a> {
     // State
     quit: bool,
-    render_text: bool,
     text: TextRope,
     backgroud_color: Color,
     font_color: Color,
     font_select_color: Color,
-    text_padding: u32,
-    line_padding: u32,
     alignment: TextAlignment,
     cursor: Cursor,
 
@@ -51,7 +49,6 @@ pub struct Editor <'a> {
 }
 
 pub struct EditorContext {
-    sdl_context: Sdl,
     video_subsystem: VideoSubsystem,
     ttf_context: Sdl3TtfContext,
     events: EventPump,
@@ -60,7 +57,7 @@ pub struct EditorContext {
 }
 
 impl <'a> Editor<'a> {
-    pub fn build(sdl_context: Sdl, video_subsystem: VideoSubsystem, ttf_context: Sdl3TtfContext, events: EventPump, window: Window) -> Result<Self, Box<dyn Error>> {
+    pub fn build(video_subsystem: VideoSubsystem, ttf_context: Sdl3TtfContext, events: EventPump, window: Window) -> Result<Self, Box<dyn Error>> {
         let mut default_font = ttf_context.load_font(DEFAULT_FONT_PATH, DEFAULT_FONT_SIZE)?;
         default_font.set_style(DEFAULT_FONT_STYLE);
 
@@ -72,7 +69,7 @@ impl <'a> Editor<'a> {
         let (text_width, text_height) = default_font.size_of_char('|')?;
 
         let new_editor = Self {
-            context : EditorContext { sdl_context,
+            context : EditorContext {
                 video_subsystem,
                 ttf_context,
                 events,
@@ -82,14 +79,11 @@ impl <'a> Editor<'a> {
             backgroud_color: DEFAULT_BACKGROUND_COLOR,
             font_color: DEFAULT_FONT_COLOR,
             font_select_color: DEFAULT_FONT_SELECT_COLOR,
-            render_text: false,
             quit: false,
             text: TextRope::new(),
             font: default_font,
-            text_padding: DEFAULT_TEXT_PADDING,
-            line_padding: DEFAULT_LINE_PADDING,
             alignment: TextAlignment::LEFT,
-            cursor: Cursor::new(text_width, text_height),
+            cursor: Cursor::new(),
             window: WindowState::new(window_width, window_height, text_width, text_height, DEFAULT_TEXT_PADDING, DEFAULT_LINE_PADDING),
             open_file_paths: Arc::new(Mutex::new(Vec::new())),
             save_file_paths: Arc::new(Mutex::new(Vec::new())),
@@ -106,13 +100,12 @@ impl <'a> Editor<'a> {
         for event in self.context.events.poll_iter() {
             match event {
                 Event::Quit { .. } | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => self.quit = true,
-                Event::Window { win_event: WindowEvent::Resized(w_w, w_h), .. }
-                    | Event::Window { win_event: WindowEvent::PixelSizeChanged(w_w, w_h), ..} => {
-                        let (text_width, text_height) = self.font.size_of_char('|')?;
+                Event::Window { win_event: WindowEvent::Resized(w_w, w_h), .. } |
+                Event::Window { win_event: WindowEvent::PixelSizeChanged(w_w, w_h), ..} => {
+                    let (text_width, text_height) = self.font.size_of_char('|')?;
                     self.window.resize(
-                        w_w as u32, w_h as u32, text_width, text_height, self.text_padding, self.line_padding
+                        w_w as u32, w_h as u32, text_width, text_height,
                     );
-                    self.render_text = true;
                 }
                 Event::KeyDown { keycode: Some(Keycode::Home), .. } => {
                     let y = if unsafe {SDL_GetModState()} & SDL_KMOD_CTRL > 0 {
@@ -121,75 +114,64 @@ impl <'a> Editor<'a> {
                         self.cursor.pos().y
                     };
                     self.cursor.jump_to(0, y, &mut self.window, &self.text);
-                    self.render_text = true;
                 },
                 Event::KeyDown { keycode: Some(Keycode::Delete), .. } => Self::delete_text(
                     &mut self.text,
                     &mut self.cursor,
-                    &mut self.render_text,
                     &mut self.window,
                 ),
                 Event::KeyDown { keycode: Some(Keycode::Backspace), .. } => Self::remove_text(
                     &mut self.text,
                     &mut self.cursor,
-                    &mut self.render_text,
                     1,
                     &mut self.window,
                 ),
                 Event::KeyDown { keycode: Some(Keycode::Return), .. } | Event::KeyDown { keycode: Some(Keycode::KpEnter), .. } => Self::return_text(
                     &mut self.text,
                     &mut self.cursor,
-                    &mut self.render_text,
                     &mut self.window,
                 ),
                 Event::KeyDown { keycode: Some(Keycode::Tab), .. } => Self::tab_text(
                     &mut self.text,
                     &mut self.cursor,
-                    &mut self.render_text,
                     &mut self.window,
                 ),
                 Event::KeyDown { keycode: Some(Keycode::Up), .. } => {
                     self.cursor.shift_y(-1, &self.text, &mut self.window);
-                    self.render_text = true;
                 },
                 Event::KeyDown { keycode: Some(Keycode::Kp8), .. }
                 if unsafe { SDL_GetModState() } & SDL_KMOD_NUM == 0 => {
                     self.cursor.shift_y(-1, &self.text, &mut self.window);
-                    self.render_text = true;
                 },
                 Event::KeyDown { keycode: Some(Keycode::Down), .. } => {
                     self.cursor.shift_y(1, &self.text, &mut self.window);
-                    self.render_text = true;
                 },
                 Event::KeyDown { keycode: Some(Keycode::Kp2), .. }
                 if unsafe { SDL_GetModState() } & SDL_KMOD_NUM == 0 => {
                     self.cursor.shift_y(1, &self.text, &mut self.window);
-                    self.render_text = true;
                 },
                 Event::KeyDown { keycode: Some(Keycode::Left), .. } => {
                     self.cursor.shift_x(-1, &self.text, &mut self.window);
-                    self.render_text = true;
                 },
                 Event::KeyDown { keycode: Some(Keycode::Kp4), .. }
                 if unsafe { SDL_GetModState() } & SDL_KMOD_NUM == 0 => {
                     self.cursor.shift_x(-1, &self.text, &mut self.window);
-                    self.render_text = true;
                 },
                 Event::KeyDown { keycode: Some(Keycode::Right), .. } => {
                     self.cursor.shift_x(1, &self.text, &mut self.window);
-                    self.render_text = true;
                 },
                 Event::KeyDown { keycode: Some(Keycode::Kp6), .. }
                 if unsafe { SDL_GetModState() } & SDL_KMOD_NUM == 0 => {
                     self.cursor.shift_x(1, &self.text, &mut self.window);
-                    self.render_text = true;
                 },
+                Event::KeyDown { keycode: Some(Keycode::A), ..}
+                if unsafe {SDL_GetModState()} & SDL_KMOD_CTRL > 0 => self.cursor.select_all(&mut self.window, &self.text),
                 Event::KeyDown { keycode: Some(Keycode::C), ..}
                 if unsafe {SDL_GetModState()} & SDL_KMOD_CTRL > 0 => {
                     let selected_text = Self::get_selected_text(&self.cursor, &self.text);
                     let raw_text = CString::from_str(&selected_text)?;
                     unsafe {SDL_SetClipboardText(raw_text.as_ptr()); }
-                }
+                },
                 Event::KeyDown { keycode: Some(Keycode::V), ..}
                 if unsafe { SDL_GetModState() } & SDL_KMOD_CTRL > 0 => {
                     let clipboard_text = self.context.video_subsystem.clipboard().clipboard_text()?;
@@ -197,7 +179,6 @@ impl <'a> Editor<'a> {
                     Self::insert_text(
                         &mut self.text,
                         &mut self.cursor,
-                        &mut self.render_text,
                         &normalized_clipboard_text,
                         &mut self.window,
                     );
@@ -267,18 +248,15 @@ impl <'a> Editor<'a> {
                 Event::TextInput { text: input_text, .. } => Self::insert_text(
                     &mut self.text,
                     &mut self.cursor,
-                    &mut self.render_text,
                     &input_text,
                     &mut self.window,
                 ),
-                Event::MouseButtonDown { mouse_btn: MouseButton::Left, x: click_x, y: click_y, .. } => Self::left_click(
+                Event::MouseButtonDown { mouse_btn: MouseButton::Left, x: click_x, y: click_y, clicks, .. } => Self::left_click(
                     click_x,
                     click_y,
+                    clicks,
                     &mut self.text,
                     &mut self.cursor,
-                    &mut self.render_text,
-                    self.text_padding,
-                    self.line_padding,
                     &mut self.window,
                 ),
                 Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } => {
@@ -291,16 +269,12 @@ impl <'a> Editor<'a> {
                         let max_lines = self.text.line_count();
                         self.window.scroll_down((-y) as usize, max_lines);
                     }
-                    self.render_text = true;
                 },
                 Event::MouseMotion { x, y, .. } => Self::move_mouse(
                     x,
                     y,
                     &mut self.text,
                     &mut self.cursor,
-                    &mut self.render_text,
-                    self.text_padding,
-                    self.line_padding,
                     &mut self.window,
                 ),
                 _ => {},
@@ -311,15 +285,16 @@ impl <'a> Editor<'a> {
     }
 
     pub fn render(&mut self) -> Result<(), Box<dyn Error>> {
-        if !self.render_text {
+        if !self.window.check_render() {
             return Ok(());
         }
-        self.render_text = false;
 
         self.context.canvas.set_draw_color(self.backgroud_color);
         self.context.canvas.clear();
 
-        let mut start_y = self.text_padding;
+
+        let (text_padding, line_padding) = self.window.get_padding();
+        let mut start_y = text_padding;
         let (screen_w, _) = self.context.canvas.window().size();
 
         for (line_num, line_text) in self.text.lines().enumerate().skip(self.window.get_first_line()).take(self.window.lines()) {
@@ -327,9 +302,8 @@ impl <'a> Editor<'a> {
             draw::selection_box(
                 &mut self.context.canvas,
                 &self.cursor,
-                self.text_padding,
-                self.line_padding,
-                &self.window, line_num,
+                &self.window,
+                line_num,
                 focused_text.chars().count(),
                 self.font_select_color,
             )?;
@@ -352,13 +326,13 @@ impl <'a> Editor<'a> {
             let TextureQuery {width, .. } = texture.query();
             let (_, height) = self.font.size_of_char('|')?;
 
-            let target = draw::text_target_aligned(&self.alignment, self.text_padding, start_y, width, height, screen_w);
+            let target = draw::text_target_aligned(&self.alignment, text_padding, start_y, width, height, screen_w);
             self.context.canvas.copy(&texture, None, Some(target.into()))?;
 
-            start_y += height + self.line_padding;
+            start_y += height + line_padding;
         }
 
-        self.cursor.draw(&mut self.context.canvas, self.text_padding, self.line_padding, &self.window)?;
+        self.cursor.draw(&mut self.context.canvas, &self.window)?;
 
         self.context.canvas.present();
 
@@ -366,7 +340,9 @@ impl <'a> Editor<'a> {
     }
 
     pub fn update(&mut self) {
-        self.render_text = self.cursor.update();
+        if self.cursor.update() {
+            self.window.set_render_flag();
+        }
 
         self.check_open_files();
         self.check_save_files();
@@ -384,7 +360,6 @@ impl <'a> Editor<'a> {
         let normalized_data = data.replace("\r\n", "\n");
         self.text = TextRope::new().append(&normalized_data);
         self.cursor.jump_to(0, 0, &mut self.window, &self.text);
-        self.render_text = true;
     }
 
     fn check_open_files(&mut self) {
@@ -399,7 +374,6 @@ impl <'a> Editor<'a> {
             let normalized_data = data.replace("\r\n", "\n");
             self.text = TextRope::new().append(&normalized_data);
             self.cursor.jump_to(0, 0, &mut self.window, &self.text);
-            self.render_text = true;
         }
     }
 
@@ -411,7 +385,6 @@ impl <'a> Editor<'a> {
         });
         while let Some(file_path) = save_file_paths.pop() {
             _ = std::fs::write(file_path, Self::export(&self.text));
-            self.render_text = true;
         }
     }
 
@@ -424,7 +397,6 @@ impl <'a> Editor<'a> {
     fn replace_selected_text(
         text: &mut TextRope,
         cursor: &mut Cursor,
-        render_text: &mut bool,
         window: &mut WindowState,
         select_pos: Vector2D,
         replace_text: &str,
@@ -443,13 +415,11 @@ impl <'a> Editor<'a> {
         *text = old_text.remove(index, len).insert(index, replace_text);
         cursor.jump_to(jump_x, jump_y, window, text);
         cursor.shift_x(replace_text.len() as isize, text, window);
-        *render_text = true;
-
     }
 
-    fn delete_text(text: &mut TextRope, cursor: &mut Cursor, render_text: &mut bool, window: &mut WindowState) {
+    fn delete_text(text: &mut TextRope, cursor: &mut Cursor, window: &mut WindowState) {
         if let Some(select_pos) =  cursor.select_start_pos() {
-            return Self::replace_selected_text(text, cursor, render_text, window, select_pos, "");
+            return Self::replace_selected_text(text, cursor, window, select_pos, "");
         }
 
         let Vector2D {x, y} = cursor.pos();
@@ -463,12 +433,11 @@ impl <'a> Editor<'a> {
         *text = old_text.remove(index, 1);
         cursor.reset_blink();
         cursor.jump_to(x, y, window, text);
-        *render_text = true;
     }
 
-    fn remove_text(text: &mut TextRope, cursor: &mut Cursor, render_text: &mut bool, amt: usize, window: &mut WindowState) {
+    fn remove_text(text: &mut TextRope, cursor: &mut Cursor, amt: usize, window: &mut WindowState) {
         if let Some(select_pos) =  cursor.select_start_pos() {
-            return Self::replace_selected_text(text, cursor, render_text, window, select_pos, "");
+            return Self::replace_selected_text(text, cursor, window, select_pos, "");
         }
 
         let index = Self::calculate_index_from_pos(text, cursor.pos());
@@ -479,12 +448,11 @@ impl <'a> Editor<'a> {
 
         let old_text = std::mem::take(text);
         *text = old_text.remove(shift_index, amt);
-        *render_text = true;
     }
 
-    fn insert_text(text: &mut TextRope, cursor: &mut Cursor, render_text: &mut bool, text_chunk: &str, window: &mut WindowState) {
+    fn insert_text(text: &mut TextRope, cursor: &mut Cursor, text_chunk: &str, window: &mut WindowState) {
         if let Some(select_pos) =  cursor.select_start_pos() {
-            return Self::replace_selected_text(text, cursor, render_text, window, select_pos, text_chunk);
+            return Self::replace_selected_text(text, cursor, window, select_pos, text_chunk);
         }
 
         let index = Self::calculate_index_from_pos(text, cursor.pos());
@@ -494,22 +462,20 @@ impl <'a> Editor<'a> {
         let text_len = text_chunk.chars().filter(|&c| c != '\n').count() as isize;
 
         cursor.shift_x(text_len, text, window);
-        *render_text = true;
     }
 
-    fn return_text(text: &mut TextRope, cursor: &mut Cursor, render_text: &mut bool, window: &mut WindowState) {
+    fn return_text(text: &mut TextRope, cursor: &mut Cursor, window: &mut WindowState) {
         if let Some(select_pos) =  cursor.select_start_pos() {
-            return Self::replace_selected_text(text, cursor, render_text, window, select_pos, "\n");
+            return Self::replace_selected_text(text, cursor, window, select_pos, "\n");
         }
         let index = Self::calculate_index_from_pos(text, cursor.pos());
 
         let old_text = std::mem::take(text);
         *text = old_text.insert(index, "\n");
         cursor.ret(window, text);
-        *render_text = true;
     }
 
-    fn tab_text(text: &mut TextRope, cursor: &mut Cursor, render_text: &mut bool, window: &mut WindowState) {
+    fn tab_text(text: &mut TextRope, cursor: &mut Cursor, window: &mut WindowState) {
         let pos @ Vector2D {x, ..} = cursor.pos();
         let index = Self::calculate_index_from_pos(text, pos);
         let spaces = TAB_SPACE_COUNT - x % TAB_SPACE_COUNT;
@@ -517,26 +483,22 @@ impl <'a> Editor<'a> {
         let old_text = std::mem::take(text);
 
         if let Some(select_pos) =  cursor.select_start_pos() {
-            return Self::replace_selected_text(text, cursor, render_text, window, select_pos, insert_spaces);
+            return Self::replace_selected_text(text, cursor, window, select_pos, insert_spaces);
         }
         
         *text = old_text.insert(index, insert_spaces);
         cursor.shift_x(spaces as isize, text, window);
-        *render_text = true;
     }
 
     fn left_click(
         click_x: f32,
         click_y: f32,
+        clicks: u8,
         text: &mut TextRope,
         cursor: &mut Cursor,
-        render_text: &mut bool,
-        text_pad: u32,
-        line_pad: u32,
         window: &mut WindowState,
     ) {
-        cursor.left_click_press(click_x, click_y, text, text_pad, line_pad, window);
-        *render_text = true;
+        cursor.left_click_press(click_x, click_y, clicks, text, window);
     }
 
     fn move_mouse(
@@ -544,12 +506,9 @@ impl <'a> Editor<'a> {
         click_y: f32,
         text: &mut TextRope,
         cursor: &mut Cursor,
-        render_text: &mut bool,
-        text_pad: u32,
-        line_pad: u32,
         window: &mut WindowState,
     ) {
-        *render_text |= cursor.mouse_move(click_x, click_y, text, text_pad, line_pad, window);
+        cursor.mouse_move(click_x, click_y, text, window)
     }
 
     fn release_left_click(cursor: &mut Cursor) {

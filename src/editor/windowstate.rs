@@ -5,21 +5,50 @@ pub struct WindowState {
     start_char: usize,
     line_count: usize,
     line_char_count: usize,
+
+    text_padding: u32,
+    line_padding: u32,
+    should_render: bool,
+
+    text_width: f32,
+    text_height: f32,
 }
 
 impl WindowState {
-    pub fn new(window_width: u32, window_height: u32, text_width: u32, text_height: u32, text_pad: u32, line_pad: u32) -> Self {
-        let mut new_window_state = Self::default();
-        new_window_state.resize(window_width, window_height, text_width, text_height, text_pad, line_pad);
+    pub fn new(window_width: u32, window_height: u32, text_width: u32, text_height: u32, text_padding: u32, line_padding: u32) -> Self {
+        let mut new_window_state = Self {
+            text_padding,
+            line_padding,
+            text_height: text_height as f32,
+            text_width: text_width as f32,
+            ..Default::default()
+        };
+        new_window_state.resize(window_width, window_height, text_width, text_height);
         new_window_state
     }
 
-    pub fn resize(&mut self, window_width: u32, window_height: u32, text_width: u32, text_height: u32, text_pad: u32, line_pad: u32) {
-        let window_height = window_height.saturating_sub(text_pad);
-        let window_width = window_width.saturating_sub(text_pad);
-        let text_height = text_height + line_pad;
+    pub fn check_render(&mut self) -> bool {
+        let should_render = self.should_render;
+        self.should_render = false;
+        should_render
+    }
+
+    pub fn set_render_flag(&mut self) {
+        self.should_render = true;
+    }
+
+    /// Returns (width, height)
+    pub fn get_text_dim(&self) -> (f32, f32) {
+        (self.text_width, self.text_height)
+    }
+
+    pub fn resize(&mut self, window_width: u32, window_height: u32, text_width: u32, text_height: u32) {
+        let window_height = window_height.saturating_sub(self.text_padding);
+        let window_width = window_width.saturating_sub(self.text_padding);
+        let text_height = text_height + self.line_padding;
         self.line_count = (window_height / text_height) as usize;
         self.line_char_count = (window_width / text_width) as usize;
+        self.should_render = true;
     }
 
     pub fn in_screen_bound(&self, x: u32, y: u32) -> Option<Vector2D> {
@@ -57,12 +86,19 @@ impl WindowState {
         self.line_char_count
     }
 
+    /// Returns (text_padding, line_padding)
+    pub fn get_padding(&self) -> (u32, u32) {
+        (self.text_padding, self.line_padding)
+    }
+
     pub fn scroll_up(&mut self, distance: usize) {
         self.start_line = self.start_line.saturating_sub(distance);
+        self.should_render = true;
     }
 
     pub fn scroll_down(&mut self, distance: usize, max_line_count: usize) {
         self.start_line = (self.start_line + distance).min(max_line_count.saturating_sub(self.line_count));
+        self.should_render = true;
     }
 
     pub fn adjust_focus(&mut self, x: usize, y: usize, text_data: &TextRope) {
@@ -84,6 +120,7 @@ impl WindowState {
 
         self.start_char = new_char_start.min(text_data.lines().nth(y).unwrap().chars().count().saturating_sub(self.line_char_count / 4));
         self.start_line = new_line_start.min(text_data.line_count().saturating_sub(self.line_count));
+        self.should_render = true;
     }
 }
 
@@ -94,6 +131,11 @@ impl Default for WindowState {
             start_char: 0,
             line_count: 0,
             line_char_count: 0,
+            text_padding: 0,
+            line_padding: 0,
+            should_render: false,
+            text_height: 0.0,
+            text_width: 0.0,
         }
     }
 }
