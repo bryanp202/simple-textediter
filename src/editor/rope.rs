@@ -40,7 +40,6 @@ impl TextRope {
     }
 
     pub fn remove(self, index: usize, len: usize) -> Self {
-        let removed = self.root.chars().skip(index).take(len).collect::<String>();
         let new_root = self.root.remove(index, len);
         Self {
             len: self.len - len,
@@ -316,12 +315,12 @@ impl Rope {
         match self {
             Rope::Leaf(text) => Self::_remove_leaf(index, delete_len, text),
             Rope::Branch {
-                height,
                 weight,
                 line,
                 left,
-                right
-            } => Self::_remove_branch(index, delete_len, height, weight, line, left, right),
+                right,
+                ..
+            } => Self::_remove_branch(index, delete_len, weight, line, left, right),
         }
     }
 
@@ -358,7 +357,6 @@ impl Rope {
     fn _remove_branch(
         index: usize,
         delete_len: usize,
-        height: usize,
         weight: usize,
         line: usize,
         left: Box<Self>,
@@ -367,23 +365,21 @@ impl Rope {
         if index < weight {
             match left._remove(index, delete_len) {
                 (Some(left_branch), 0) => (
-                    Some(Box::new(
-                        Rope::new_branch(
-                            left_branch.height() + 1,
-                            left_branch.calc_weight(),
-                            left_branch._line_count(),
-                            left_branch,
-                            right,
-                        )
-                    )),
+                    Some(Box::new(Rope::new_branch(
+                        left_branch.height().max(right.height()) + 1,
+                        weight - delete_len,
+                        left_branch._line_count(),
+                        left_branch,
+                        right,
+                    ))),
                     0,
                 ),
                 (Some(left_branch), remaining_del) => {
                     match right._remove(0, remaining_del) {
                         (Some(right_branch), remaining_del_len) => (
                             Some(Box::new(Rope::new_branch(
-                                left_branch.height() + 1,
-                                left_branch.calc_weight(),
+                                left_branch.height().max(right_branch.height()) + 1,
+                                weight + remaining_del - delete_len,
                                 left_branch._line_count(),
                                 left_branch,
                                 right_branch,
@@ -400,7 +396,7 @@ impl Rope {
             match right._remove(index - weight, delete_len) {
                 (Some(right_branch), remaining_del_len) => (
                     Some(Box::new(Self::new_branch(
-                        height,
+                        left.height().max(right_branch.height()) + 1,
                         weight,
                         line,
                         left,
@@ -511,13 +507,6 @@ impl Rope {
     fn weight(&self) -> usize {
         match self {
             Rope::Branch { weight, .. } => *weight,
-            Rope::Leaf(text) => text.chars().count()
-        }
-    }
-
-    fn calc_weight(&self) -> usize {
-        match self {
-            Rope::Branch { weight, right, .. } => *weight + right.weight(),
             Rope::Leaf(text) => text.chars().count()
         }
     }
