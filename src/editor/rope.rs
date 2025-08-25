@@ -17,7 +17,6 @@ impl TextRope {
         if insert_text.len() == 0 {
             return self;
         }
-
         let char_count = insert_text.chars().count();
         let line_count = Rope::get_line_count(insert_text);
         let new_root = Self::insert_in_chunks(self.root, insert_text, index);
@@ -41,6 +40,7 @@ impl TextRope {
     }
 
     pub fn remove(self, index: usize, len: usize) -> Self {
+        let removed = self.root.chars().skip(index).take(len).collect::<String>();
         let new_root = self.root.remove(index, len);
         Self {
             len: self.len - len,
@@ -370,7 +370,7 @@ impl Rope {
                     Some(Box::new(
                         Rope::new_branch(
                             left_branch.height() + 1,
-                            left_branch.weight(),
+                            left_branch.calc_weight(),
                             left_branch._line_count(),
                             left_branch,
                             right,
@@ -383,7 +383,7 @@ impl Rope {
                         (Some(right_branch), remaining_del_len) => (
                             Some(Box::new(Rope::new_branch(
                                 left_branch.height() + 1,
-                                left_branch.weight(),
+                                left_branch.calc_weight(),
                                 left_branch._line_count(),
                                 left_branch,
                                 right_branch,
@@ -415,16 +415,15 @@ impl Rope {
 
     fn _line_start_index(&self, target_line: usize) -> usize {
         match self {
-            Rope::Branch { line, left, right, .. } => {
+            Rope::Branch { line, left, right, weight, .. } => {
                 if target_line <= *line {
                     left._line_start_index(target_line)
                 } else {
-                    right._line_start_index(target_line - line)
+                    weight + right._line_start_index(target_line - line)
                 }
             },
             Rope::Leaf(text) => {
-                let mut chars_iter = text.chars();
-                let target_newline_index = chars_iter.by_ref()
+                let target_newline_index = text.chars()
                     .enumerate()
                     .filter(|&(_, c)| c == '\n')
                     .map(|(i, _)| i)
@@ -512,6 +511,13 @@ impl Rope {
     fn weight(&self) -> usize {
         match self {
             Rope::Branch { weight, .. } => *weight,
+            Rope::Leaf(text) => text.chars().count()
+        }
+    }
+
+    fn calc_weight(&self) -> usize {
+        match self {
+            Rope::Branch { weight, right, .. } => *weight + right.weight(),
             Rope::Leaf(text) => text.chars().count()
         }
     }

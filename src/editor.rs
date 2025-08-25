@@ -187,12 +187,12 @@ impl <'a> Editor<'a> {
                 if unsafe { SDL_GetModState() } & SDL_KMOD_CTRL > 0 => {
                     let filters = [
                         DialogFileFilter {
-                            name: "Text Document (*.txt)",
-                            pattern: "txt",
-                        },
-                        DialogFileFilter {
                             name: "All Files (*.*)",
                             pattern: "*",
+                        },
+                        DialogFileFilter {
+                            name: "Text Document (*.txt)",
+                            pattern: "txt",
                         },
                     ];
                     let file_path_ref = self.open_file_paths.clone();
@@ -216,12 +216,12 @@ impl <'a> Editor<'a> {
                 if unsafe { SDL_GetModState() } & SDL_KMOD_CTRL > 0 => {
                     let filters = [
                         DialogFileFilter {
-                            name: "Text Document (*.txt)",
-                            pattern: "txt",
-                        },
-                        DialogFileFilter {
                             name: "All Files (*.*)",
                             pattern: "*",
+                        },
+                        DialogFileFilter {
+                            name: "Text Document (*.txt)",
+                            pattern: "txt",
                         },
                     ];
                     let file_path_ref = self.save_file_paths.clone();
