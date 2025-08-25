@@ -20,8 +20,10 @@ impl TextRope {
 
         let char_count = insert_text.chars().count();
         let line_count = Rope::get_line_count(insert_text);
+        let new_root = Self::insert_in_chunks(self.root, insert_text, index);
+
         Self {
-            root: self.root._insert(index, insert_text, char_count, line_count),
+            root: new_root,
             len: self.len + char_count,
             line_count: self.line_count + line_count,
         }
@@ -30,8 +32,9 @@ impl TextRope {
     pub fn append(self, insert_text: &str) -> Self {
         let char_count = insert_text.chars().count();
         let line_count = Rope::get_line_count(insert_text);
+        let new_root = Self::insert_in_chunks(self.root, insert_text, self.len);
         Self {
-            root: self.root._insert(self.len, insert_text, char_count, line_count),
+            root: new_root,
             len: self.len + char_count,
             line_count: self.line_count + line_count,
         }
@@ -80,6 +83,20 @@ impl TextRope {
 
     pub fn line_count(&self) -> usize {
         self.line_count + 1
+    }
+}
+
+impl TextRope {
+    fn insert_in_chunks(mut root: Rope, insert_text: &str, mut index: usize) -> Rope {
+        let mut chars_iter = insert_text.chars();
+        loop {
+            let chunk = chars_iter.by_ref().take(Rope::MAX_NODE_INSERT_SIZE).collect::<String>();
+            if chunk.is_empty() {
+                return root;
+            }
+            root = root.insert(index, &chunk);
+            index += Rope::MAX_NODE_INSERT_SIZE;
+        }
     }
 }
 

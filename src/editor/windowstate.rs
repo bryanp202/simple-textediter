@@ -15,6 +15,7 @@ pub struct WindowState {
 }
 
 impl WindowState {
+    const SCROLL_FACTOR: usize = 4;
     pub fn new(window_width: u32, window_height: u32, text_width: u32, text_height: u32, text_padding: u32, line_padding: u32) -> Self {
         let mut new_window_state = Self {
             text_padding,
@@ -92,12 +93,12 @@ impl WindowState {
     }
 
     pub fn scroll_up(&mut self, distance: usize) {
-        self.start_line = self.start_line.saturating_sub(distance);
+        self.start_line = self.start_line.saturating_sub(distance * Self::SCROLL_FACTOR);
         self.should_render = true;
     }
 
     pub fn scroll_down(&mut self, distance: usize, max_line_count: usize) {
-        self.start_line = (self.start_line + distance).min(max_line_count.saturating_sub(self.line_count));
+        self.start_line = (self.start_line + distance * Self::SCROLL_FACTOR).min(max_line_count.saturating_sub(self.line_count));
         self.should_render = true;
     }
 
