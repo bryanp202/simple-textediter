@@ -136,6 +136,14 @@ impl <'a> Editor<'a> {
                     &mut self.cursor,
                     &mut self.window,
                 ),
+                Event::KeyDown { keycode: Some(Keycode::LShift), .. } |
+                Event::KeyDown { keycode: Some(Keycode::RShift), .. } => self.cursor.shift_press(),
+                Event::KeyUp { keycode: Some(Keycode::LShift), .. } |
+                Event::KeyUp { keycode: Some(Keycode::RShift), .. } => self.cursor.shift_release(),
+                Event::KeyDown { keycode: Some(Keycode::LCtrl), .. } |
+                Event::KeyDown { keycode: Some(Keycode::RCtrl), .. } => self.cursor.control_press(),
+                Event::KeyUp { keycode: Some(Keycode::LCtrl), .. } |
+                Event::KeyUp { keycode: Some(Keycode::RCtrl), .. } => self.cursor.control_release(),
                 Event::KeyDown { keycode: Some(Keycode::Up), .. } => {
                     self.cursor.shift_y(-1, &self.text, &mut self.window);
                 },
@@ -172,6 +180,15 @@ impl <'a> Editor<'a> {
                     let raw_text = CString::from_str(&selected_text)?;
                     unsafe {SDL_SetClipboardText(raw_text.as_ptr()); }
                 },
+                Event::KeyDown { keycode: Some(Keycode::X), ..}
+                if unsafe {SDL_GetModState()} & SDL_KMOD_CTRL > 0 => {
+                    let selected_text = Self::get_selected_text(&self.cursor, &self.text);
+                    let raw_text = CString::from_str(&selected_text)?;
+                    unsafe {SDL_SetClipboardText(raw_text.as_ptr()); }
+                    if let Some(select_pos) = self.cursor.select_start_pos() {
+                        Self::replace_selected_text(&mut self.text, &mut self.cursor, &mut self.window, select_pos, "");
+                    }
+                },
                 Event::KeyDown { keycode: Some(Keycode::V), ..}
                 if unsafe { SDL_GetModState() } & SDL_KMOD_CTRL > 0 => {
                     let clipboard_text = self.context.video_subsystem.clipboard().clipboard_text()?;
@@ -182,6 +199,10 @@ impl <'a> Editor<'a> {
                         &normalized_clipboard_text,
                         &mut self.window,
                     );
+                },
+                Event::KeyDown { keycode: Some(Keycode::D), ..}
+                if unsafe { SDL_GetModState() } & SDL_KMOD_CTRL > 0 => {
+                    self.cursor.select_around_cursor(&self.text, &mut self.window);
                 },
                 Event::KeyDown { keycode: Some(Keycode::O), .. }
                 if unsafe { SDL_GetModState() } & SDL_KMOD_CTRL > 0 => {
@@ -341,7 +362,12 @@ impl <'a> Editor<'a> {
 
     fn draw_console(&mut self) -> Result<(), Box<dyn Error>> {
         let Vector2D { x, y } = self.cursor.pos();
-        let cursor_pos_str = format!("Ln: {}, Col {}", y + 1, x + 1);
+        let cursor_pos_str = if let None = self.cursor.select_start_pos() {
+            format!("Ln: {}, Col {}", y + 1, x + 1)
+        } else {
+            let selected_str_count = Self::get_selected_text(&self.cursor, &self.text).chars().count();
+            format!("Ln: {}, Col {} ({} Selected)", y + 1, x + 1, selected_str_count)
+        };
         let surface = self
                 .font
                 .render(&cursor_pos_str)
@@ -444,7 +470,7 @@ impl <'a> Editor<'a> {
         let old_text = std::mem::take(text);
         *text = old_text.remove(index, len).insert(index, replace_text);
         cursor.jump_to(jump_x, jump_y, window, text);
-        cursor.shift_x(replace_text.len() as isize, text, window);
+        cursor.text_shift_x(replace_text.len() as isize, text, window);
     }
 
     fn delete_text(text: &mut TextRope, cursor: &mut Cursor, window: &mut WindowState) {
@@ -474,7 +500,7 @@ impl <'a> Editor<'a> {
         let Some(shift_index) = index.checked_sub(amt) else {
             return;
         };
-        cursor.shift_x(-(amt as isize), text, window);
+        cursor.text_shift_x(-(amt as isize), text, window);
 
         let old_text = std::mem::take(text);
         *text = old_text.remove(shift_index, amt);
@@ -491,7 +517,7 @@ impl <'a> Editor<'a> {
 
         let text_len = text_chunk.chars().filter(|&c| c != '\n').count() as isize;
 
-        cursor.shift_x(text_len, text, window);
+        cursor.text_shift_x(text_len, text, window);
     }
 
     fn return_text(text: &mut TextRope, cursor: &mut Cursor, window: &mut WindowState) {
@@ -517,7 +543,7 @@ impl <'a> Editor<'a> {
         }
         
         *text = old_text.insert(index, insert_spaces);
-        cursor.shift_x(spaces as isize, text, window);
+        cursor.text_shift_x(spaces as isize, text, window);
     }
 
     fn left_click(

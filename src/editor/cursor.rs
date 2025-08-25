@@ -1,7 +1,7 @@
 use sdl3::{pixels::Color, render::{Canvas, FPoint}, video::Window};
 
 use crate::{editor::{rope::TextRope, windowstate::WindowState}, vector::Vector2D};
-use std::{cmp::Ordering, error::Error, time::{Duration, Instant}, u32, usize};
+use std::{error::Error, time::{Duration, Instant}, u32, usize};
 
 const DEFAULT_BLINK_PERIOD: Duration = Duration::from_millis(500);
 const DEFAULT_CUSROR_COLOR: Color = super::DEFAULT_FONT_COLOR;
@@ -10,11 +10,13 @@ pub struct Cursor {
     pos: Vector2D,
     select_start_pos: Option<Vector2D>,
     snap_x: u32,
-    blink_on: bool,
-    left_down: bool,
     blink_period: Duration,
     blink_timer: Instant,
     color: Color,
+    blink_on: bool,
+    left_down: bool,
+    shift_down: bool,
+    control_down: bool,
 }
 
 impl Cursor {
@@ -40,81 +42,32 @@ impl Cursor {
 
     pub fn jump_to(&mut self, x: u32, y: u32, window: &mut WindowState, text_data: &TextRope) {
         self.snap_x = x;
-        self.select_start_pos = None;
+        self.reset_select_pos();
         self.move_to(x, y, window, text_data)
     }
 
-    pub fn shift_x(&mut self, amt: isize, text_data: &TextRope, window: &mut WindowState) {
-        let shifted_x = (self.pos.x as isize).saturating_add(amt);
-        let mut new_x = shifted_x as u32;
-        let mut new_y = self.pos.y;
-        if shifted_x < 0 {
-            if let Some(shifted_y) = self.pos.y.checked_sub(1) {
-                new_y = shifted_y;
-                new_x = text_data.lines()
-                    .nth(new_y as usize)
-                    .map(|line_str| line_str.chars().count())
-                    .unwrap_or(0) as u32;
-            } else {
-                new_x = 0;
-            }
-        } else {
-            let mut line_iter = text_data.lines().skip(new_y as usize);
-            let mut line_len = line_iter.next().map(|line_str| line_str.chars().count() as u32).unwrap();
-            while new_x > line_len {
-                let Some(next_line_len) = line_iter.next().map(|line_str| line_str.chars().count() as u32) else {
-                    new_x = line_len;
-                    break;
-                };
-                new_y += 1;
-                new_x -= line_len + 1;
-                line_len = next_line_len;
-            }
-        };
-        self.snap_x = new_x;
+    pub fn text_shift_x(&mut self, amt: isize, text_data: &TextRope, window: &mut WindowState) {
+        let (new_x, new_y) = self.align_x(amt, text_data);
         self.select_start_pos = None;
+        self.move_to(new_x, new_y, window, text_data)
+    }
+
+    pub fn shift_x(&mut self, amt: isize, text_data: &TextRope, window: &mut WindowState) {
+        let (new_x, new_y) = self.align_x(amt, text_data);
+        self.reset_select_pos();
         self.move_to(new_x, new_y, window, text_data)
     }
 
     pub fn shift_y(&mut self, amt: isize, text_data: &TextRope, window: &mut WindowState) {
-        let new_y = (self.pos.y as isize).saturating_add(amt).clamp(0, text_data.line_count() as isize  - 1) as u32;
-        let line_len = text_data.lines().nth(new_y as usize).unwrap().chars().count() as u32;
-        let new_x = self.pos.x.max(self.snap_x).min(line_len);
-        self.select_start_pos = None;
+        let (new_x, new_y) = self.align_y(amt, text_data);
+        self.reset_select_pos();
         self.move_to(new_x, new_y, window, text_data)
-    }
-
-    pub fn left_click_press(&mut self, click_x: f32, click_y: f32, clicks: u8, text_data: &TextRope, window: &mut WindowState) {
-        self.left_down = true;
-        
-        match clicks {
-            1 => {
-                self.jump_to_mouse(click_x, click_y, text_data, window);
-                self.select_start_pos = Some(self.pos);
-            },
-            2 => {
-                let (char_num, line_num) = snap_click_pos(click_x, click_y, window, text_data);
-                self.select_word_or_chunk(line_num as u32, char_num as u32, text_data, window);
-            },
-            3 => {
-                let (_, line_num) = snap_click_pos(click_x, click_y, window, text_data);
-                let line_len = text_data.lines().nth(line_num).unwrap().chars().count();
-                self.select_start_pos = Some(Vector2D::new(0, line_num as u32));
-                self.move_to(line_len as u32, line_num as u32, window, text_data);
-            },
-            _ => self.select_all(window, text_data),
-        }
-        
     }
 
     pub fn mouse_move(&mut self, click_x: f32, click_y: f32, text_data: &TextRope, window: &mut WindowState) {
         if self.left_down {
             self.jump_to_mouse(click_x, click_y, text_data, window);
         }
-    }
-
-    pub fn left_click_release(&mut self) {
-        self.left_down = false;
     }
 
     pub fn ret(&mut self, window: &mut WindowState, text_data: &TextRope) {
@@ -173,6 +126,58 @@ impl Cursor {
 }
 
 impl Cursor {
+    pub fn left_click_press(&mut self, click_x: f32, click_y: f32, clicks: u8, text_data: &TextRope, window: &mut WindowState) {
+        self.left_down = true;
+        
+        match clicks {
+            1 => {
+                self.jump_to_mouse(click_x, click_y, text_data, window);
+                self.select_start_pos = Some(self.pos);
+            },
+            2 => {
+                let (char_num, line_num) = snap_click_pos(click_x, click_y, window, text_data);
+                self.select_word_or_chunk(line_num as u32, char_num as u32, text_data, window);
+            },
+            3 => {
+                let (_, line_num) = snap_click_pos(click_x, click_y, window, text_data);
+                let line_len = text_data.lines().nth(line_num).unwrap().chars().count();
+                self.select_start_pos = Some(Vector2D::new(0, line_num as u32));
+                self.move_to(line_len as u32, line_num as u32, window, text_data);
+            },
+            _ => self.select_all(window, text_data),
+        }
+    }
+
+    pub fn left_click_release(&mut self) {
+        self.left_down = false;
+    }
+
+    pub fn shift_press(&mut self) {
+        self.shift_down = true;
+        if let None = self.select_start_pos {
+            self.select_start_pos = Some(self.pos);
+        }
+    }
+
+    pub fn shift_release(&mut self) {
+        self.shift_down = false;
+    }
+
+    pub fn control_press(&mut self) {
+        self.control_down = true;
+    }
+
+    pub fn control_release(&mut self) {
+        self.control_down = false;
+    }
+
+    pub fn select_around_cursor(&mut self, text_data: &TextRope, window: &mut WindowState) {
+        let Vector2D{x: char_num, y: line_num} = self.pos;
+        self.select_word_or_chunk(line_num, char_num, text_data, window);
+    }
+}
+
+impl Cursor {
     fn jump_to_mouse(&mut self, mouse_x: f32, mouse_y: f32, text_data: &TextRope, window: &mut WindowState) {
         let (new_x, new_y) = snap_click_pos(mouse_x, mouse_y, window, text_data);
         self.snap_x = new_x as u32;
@@ -185,6 +190,56 @@ impl Cursor {
         self.pos.x = x;
         self.pos.y = y;
         self.reset_blink()
+    }
+
+    fn reset_select_pos(&mut self) {
+        if !self.shift_down {
+            self.select_start_pos = None;
+        } else {
+            if let None = self.select_start_pos {
+                self.select_start_pos = Some(self.pos);
+            }
+        }
+    }
+
+    /// Returns (new_x, new_y)
+    fn align_x(&mut self, amt: isize, text_data: &TextRope) -> (u32, u32) {
+        let shifted_x = (self.pos.x as isize).saturating_add(amt);
+        let mut new_x = shifted_x as u32;
+        let mut new_y = self.pos.y;
+        if shifted_x < 0 {
+            if let Some(shifted_y) = self.pos.y.checked_sub(1) {
+                new_y = shifted_y;
+                new_x = text_data.lines()
+                    .nth(new_y as usize)
+                    .map(|line_str| line_str.chars().count())
+                    .unwrap_or(0) as u32;
+            } else {
+                new_x = 0;
+            }
+        } else {
+            let mut line_iter = text_data.lines().skip(new_y as usize);
+            let mut line_len = line_iter.next().map(|line_str| line_str.chars().count() as u32).unwrap();
+            while new_x > line_len {
+                let Some(next_line_len) = line_iter.next().map(|line_str| line_str.chars().count() as u32) else {
+                    new_x = line_len;
+                    break;
+                };
+                new_y += 1;
+                new_x -= line_len + 1;
+                line_len = next_line_len;
+            }
+        };
+        self.snap_x = new_x;
+        (new_x, new_y)
+    }
+
+    /// Returns (new_x, new_y)
+    fn align_y(&self, amt: isize, text_data: &TextRope) -> (u32, u32) {
+        let new_y = (self.pos.y as isize).saturating_add(amt).clamp(0, text_data.line_count() as isize  - 1) as u32;
+        let line_len = text_data.lines().nth(new_y as usize).unwrap().chars().count() as u32;
+        let new_x = self.pos.x.max(self.snap_x).min(line_len);
+        (new_x, new_y)
     }
 
     fn select_word_or_chunk(&mut self, line_num: u32, char_num: u32, text_data: &TextRope, window: &mut WindowState) {
@@ -205,22 +260,24 @@ impl Cursor {
                 first_alpha_space = None;
             }
         }
-        let target_char_and_offset = char_iter.by_ref().next().map_or((0, ' '), |(_, c)| (1, c));
-        let (start_x, end_x) = if let (offset, ' ') = target_char_and_offset {
+        let (target_offset, target_char) = char_iter.by_ref().next().map_or((0, ' '), |(_, c)| (1, c));
+        let (start_x, end_x) = if target_char == ' ' {
             let last_space_index = char_iter.by_ref()
                 .take_while(|&(_, c)| c == ' ')
                 .last()
                 .map_or(
-                    (char_num + offset) as usize,
+                    (char_num + target_offset) as usize,
                      |(i, _)| i + 1
                 );
             (first_left_space.unwrap_or(char_num as usize), last_space_index)
-        } else {
+        } else if target_char.is_alphanumeric() || target_char == '_' {
             let last_alpha_index = char_iter
                 .take_while(|&(_, c)| c.is_alphanumeric() || c == '_')
                 .last()
                 .map_or(char_num as usize, |(i, _)| i);
             (first_alpha_space.map_or(char_num as usize, |x| x), last_alpha_index + 1)
+        } else {
+            (char_num as usize, char_num as usize)
         };
 
         self.select_start_pos = Some(Vector2D::new(start_x as u32, line_num));
@@ -237,11 +294,13 @@ impl Default for Cursor {
             },
             select_start_pos: None,
             snap_x: 0,
-            blink_on: true,
-            left_down: false,
             blink_period: DEFAULT_BLINK_PERIOD,
             color: DEFAULT_CUSROR_COLOR,
             blink_timer: Instant::now(),
+            blink_on: true,
+            left_down: false,
+            control_down: false,
+            shift_down: false,
         }
     }
 }

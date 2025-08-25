@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 use std::iter::Iterator;
 use std::cmp::Ordering;
+use std::usize;
 
 pub struct TextRope {
     root: Rope,
@@ -423,7 +424,7 @@ impl Rope {
                     .enumerate()
                     .filter(|&(_, c)| c == '\n')
                     .map(|(i, _)| i)
-                    .nth(target_line)
+                    .nth(target_line - 1)
                     .unwrap();
                 target_newline_index + 1
             }
