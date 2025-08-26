@@ -20,8 +20,6 @@ impl WindowState {
         let mut new_window_state = Self {
             text_padding,
             line_padding,
-            text_height: text_height as f32,
-            text_width: text_width as f32,
             ..Default::default()
         };
         new_window_state.resize(window_width, window_height, text_width, text_height);
@@ -44,6 +42,9 @@ impl WindowState {
     }
 
     pub fn resize(&mut self, window_width: u32, window_height: u32, text_width: u32, text_height: u32) {
+        self.text_height = text_height as f32;
+        self.text_width = text_width as f32;
+
         let window_height = window_height.saturating_sub(self.text_padding);
         let window_width = window_width.saturating_sub(self.text_padding);
         let text_height = text_height + self.line_padding;

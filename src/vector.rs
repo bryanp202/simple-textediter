@@ -1,4 +1,6 @@
-#[derive(Clone, Copy)]
+use std::cmp::Ordering;
+
+#[derive(Clone, Copy, PartialEq)]
 pub struct Vector2D {
     pub x: u32,
     pub y: u32,
@@ -7,5 +9,22 @@ pub struct Vector2D {
 impl Vector2D {
     pub fn new(x: u32, y: u32) -> Self {
         Self { x, y }
+    }
+}
+
+impl Ord for Vector2D {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.y.cmp(&other.y) {
+            Ordering::Equal => self.x.cmp(&other.x),
+            not_eq => not_eq,
+        }
+    }
+}
+
+impl Eq for Vector2D {}
+
+impl PartialOrd for Vector2D {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }

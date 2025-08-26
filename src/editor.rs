@@ -11,16 +11,19 @@ use sdl3::{dialog::{show_open_file_dialog, show_save_file_dialog, DialogFileFilt
 
 use crate::{editor::rope::TextRope, vector::Vector2D};
 
-const DEFAULT_FONT_PATH: &str = "C:\\Windows\\Fonts\\consola.ttf";
+const DEFAULT_FONT_PATH: &str = r"C:\Windows\Fonts\consola.ttf";
 const DEFAULT_FONT_SIZE: f32 = 24.0;
+const MAX_FONT_SIZE: f32 = 126.0;
+const MIN_FONT_SIZE: f32 = 12.0;
+const FONT_ZOOM_INCREMENT: f32 = 6.0;
 const DEFAULT_FONT_STYLE: FontStyle = FontStyle::NORMAL;
 const DEFAULT_BACKGROUND_COLOR: Color = Color::RGB(20, 20, 20);
 const DEFAULT_FONT_COLOR: Color = Color::RGB(180, 225, 225);
 const DEFAULT_FONT_SELECT_COLOR: Color = Color::RGB(80, 80, 80);
 const DEFAULT_TEXT_PADDING: u32 = 16;
 const DEFAULT_LINE_PADDING: u32 = 2;
-const TAB_SPACE_COUNT: u32 = 2;
-const TAB_SPACE_STRING: &str = "  ";
+const TAB_SPACE_COUNT: u32 = 4;
+const TAB_SPACE_STRING: &str = "    ";
 
 #[allow(dead_code)]
 pub enum TextAlignment {
@@ -40,6 +43,7 @@ pub struct Editor <'a> {
     cursor: Cursor,
 
     // Data
+    font_size: f32,
     font: Font<'a>,
     window: WindowState,
     open_file_paths: Arc<Mutex<Vec<PathBuf>>>,
@@ -81,6 +85,7 @@ impl <'a> Editor<'a> {
             font_select_color: DEFAULT_FONT_SELECT_COLOR,
             quit: false,
             text: TextRope::new(),
+            font_size: DEFAULT_FONT_SIZE,
             font: default_font,
             alignment: TextAlignment::LEFT,
             cursor: Cursor::new(),
@@ -171,6 +176,22 @@ impl <'a> Editor<'a> {
                 Event::KeyDown { keycode: Some(Keycode::Kp6), .. }
                 if unsafe { SDL_GetModState() } & SDL_KMOD_NUM == 0 => {
                     self.cursor.shift_x(1, &self.text, &mut self.window);
+                },
+                Event::KeyDown { keycode: Some(Keycode::Equals), ..}
+                if unsafe {SDL_GetModState()} & SDL_KMOD_CTRL > 0 => {
+                    let (window_width, window_height) = self.context.canvas.window().size();
+                    self.font_size = (self.font_size + FONT_ZOOM_INCREMENT).min(MAX_FONT_SIZE);
+                    self.font = load_font(&self.context.ttf_context, DEFAULT_FONT_PATH, self.font_size, DEFAULT_FONT_STYLE)?;
+                    let (text_width, text_height) = self.font.size_of_char('|')?;
+                    self.window.resize(window_width, window_height, text_width, text_height);
+                },
+                Event::KeyDown { keycode: Some(Keycode::Minus), ..}
+                if unsafe {SDL_GetModState()} & SDL_KMOD_CTRL > 0 => {
+                    let (window_width, window_height) = self.context.canvas.window().size();
+                    self.font_size = (self.font_size - FONT_ZOOM_INCREMENT).max(MIN_FONT_SIZE);
+                    self.font = load_font(&self.context.ttf_context, DEFAULT_FONT_PATH, self.font_size, DEFAULT_FONT_STYLE)?;
+                    let (text_width, text_height) = self.font.size_of_char('|')?;
+                    self.window.resize(window_width, window_height, text_width, text_height);
                 },
                 Event::KeyDown { keycode: Some(Keycode::A), ..}
                 if unsafe {SDL_GetModState()} & SDL_KMOD_CTRL > 0 => self.cursor.select_all(&mut self.window, &self.text),
@@ -591,12 +612,8 @@ impl <'a> Editor<'a> {
     }
 }
 
-impl <'a> Editor<'a> {
-    fn load_font(&mut self, font_path: &str, point_size: f32, style: FontStyle) -> Result<(), Box<dyn Error>> {
-        self.font = self
-            .context.ttf_context
-            .load_font(font_path, point_size)?;
-        self.font.set_style(style);
-        Ok(())
+fn load_font<'a>(ttf_context: &Sdl3TtfContext, font_path: &str, point_size: f32, style: FontStyle) -> Result<Font<'a>, Box<dyn Error>> {
+        let mut font = ttf_context.load_font(font_path, point_size)?;
+        font.set_style(style);
+        Ok(font)
     }
-}

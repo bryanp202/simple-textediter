@@ -54,8 +54,22 @@ impl Cursor {
 
     pub fn shift_x(&mut self, amt: isize, text_data: &TextRope, window: &mut WindowState) {
         let (new_x, new_y) = self.align_x(amt, text_data);
+        
+        let Vector2D{x: move_x, y: move_y} = if !self.shift_down {
+            if let Some(select_start_pos) = self.select_start_pos {
+                if amt >= 0 {
+                    select_start_pos.max(self.pos)
+                } else {
+                    select_start_pos.min(self.pos)
+                }
+            } else {
+                Vector2D::new(new_x, new_y)
+            }
+        } else {
+            Vector2D::new(new_x, new_y)
+        };
         self.reset_select_pos();
-        self.move_to(new_x, new_y, window, text_data)
+        self.move_to(move_x, move_y, window, text_data)
     }
 
     pub fn shift_y(&mut self, amt: isize, text_data: &TextRope, window: &mut WindowState) {
