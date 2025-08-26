@@ -536,7 +536,7 @@ impl <'a> Editor<'a> {
         let old_text = std::mem::take(text);
         *text = old_text.insert(index, text_chunk);
 
-        let text_len = text_chunk.chars().filter(|&c| c != '\n').count() as isize;
+        let text_len = text_chunk.chars().count() as isize;
 
         cursor.text_shift_x(text_len, text, window);
     }
@@ -557,12 +557,12 @@ impl <'a> Editor<'a> {
         let index = Self::calculate_index_from_pos(text, pos);
         let spaces = TAB_SPACE_COUNT - x % TAB_SPACE_COUNT;
         let insert_spaces = &TAB_SPACE_STRING[..spaces as usize];
-        let old_text = std::mem::take(text);
 
         if let Some(select_pos) =  cursor.select_start_pos() {
             return Self::replace_selected_text(text, cursor, window, select_pos, insert_spaces);
         }
-        
+
+        let old_text = std::mem::take(text);
         *text = old_text.insert(index, insert_spaces);
         cursor.text_shift_x(spaces as isize, text, window);
     }
@@ -613,7 +613,7 @@ impl <'a> Editor<'a> {
 }
 
 fn load_font<'a>(ttf_context: &Sdl3TtfContext, font_path: &str, point_size: f32, style: FontStyle) -> Result<Font<'a>, Box<dyn Error>> {
-        let mut font = ttf_context.load_font(font_path, point_size)?;
-        font.set_style(style);
-        Ok(font)
-    }
+    let mut font = ttf_context.load_font(font_path, point_size)?;
+    font.set_style(style);
+    Ok(font)
+}

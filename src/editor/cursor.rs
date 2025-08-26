@@ -53,23 +53,19 @@ impl Cursor {
     }
 
     pub fn shift_x(&mut self, amt: isize, text_data: &TextRope, window: &mut WindowState) {
-        let (new_x, new_y) = self.align_x(amt, text_data);
-        
-        let Vector2D{x: move_x, y: move_y} = if !self.shift_down {
-            if let Some(select_start_pos) = self.select_start_pos {
+        let (new_x, new_y) = match (self.control_down, self.shift_down, self.select_start_pos) {
+            (true, ..) => self.align_word_x(amt, text_data),
+            (_, false, Some(select_start_pos)) => {
                 if amt >= 0 {
-                    select_start_pos.max(self.pos)
+                    select_start_pos.max(self.pos).into()
                 } else {
-                    select_start_pos.min(self.pos)
+                    select_start_pos.min(self.pos).into()
                 }
-            } else {
-                Vector2D::new(new_x, new_y)
             }
-        } else {
-            Vector2D::new(new_x, new_y)
+            _ => self.align_x(amt, text_data),
         };
         self.reset_select_pos();
-        self.move_to(move_x, move_y, window, text_data)
+        self.move_to(new_x, new_y, window, text_data)
     }
 
     pub fn shift_y(&mut self, amt: isize, text_data: &TextRope, window: &mut WindowState) {
@@ -248,6 +244,35 @@ impl Cursor {
         (new_x, new_y)
     }
 
+    fn align_word_x(&mut self, amt: isize, text_data: &TextRope) -> (u32, u32) {
+        let (start_x, start_y) = self.pos.into();
+        let (new_x, new_y) = if amt >= 0{
+            match find_end_of_chunk(start_y, start_x, text_data) {
+                Ok(new_x) => (new_x, start_y),
+                Err(last_x) => {
+                    if start_y + 1 < text_data.line_count() as u32 {
+                        (find_end_of_chunk(start_y + 1, 0, text_data).unwrap_or(0), start_y + 1)
+                    } else {
+                        (last_x, start_y)
+                    }
+                }
+            }
+        } else {
+            match find_start_of_chunk(start_y, start_x, text_data) {
+                Ok(new_x) => (new_x, start_y),
+                Err(last_x) => {
+                    if start_y >= 1 {
+                        (find_start_of_chunk(start_y - 1, u32::MAX, text_data).unwrap_or(0), start_y - 1)
+                    } else {
+                        (last_x, start_y)
+                    }
+                }
+            }
+        };
+        self.snap_x = new_x;
+        (new_x, new_y)
+    }
+
     /// Returns (new_x, new_y)
     fn align_y(&self, amt: isize, text_data: &TextRope) -> (u32, u32) {
         let new_y = (self.pos.y as isize).saturating_add(amt).clamp(0, text_data.line_count() as isize  - 1) as u32;
@@ -261,16 +286,20 @@ impl Cursor {
         
         let mut first_left_space: Option<usize> = None;
         let mut first_alpha_space: Option<usize> = None;
+        let mut first_left_symbol: Option<usize> = None;
         let mut char_iter = line_text.chars().enumerate();
         for (i, c) in char_iter.by_ref().take(char_num as usize) {
             if c == ' ' {
                 first_left_space = first_left_space.or(Some(i));
-            } else {
-                first_left_space = None;
-            }
-            if c.is_alphanumeric() || c == '_' {
+                first_alpha_space = None;
+                first_left_symbol = None;
+            } else if is_identifier(c) {
                 first_alpha_space = first_alpha_space.or(Some(i));
+                first_left_space = None;
+                first_left_symbol = None;
             } else {
+                first_left_symbol = first_left_symbol.or(Some(i));
+                first_left_space = None;
                 first_alpha_space = None;
             }
         }
@@ -286,12 +315,16 @@ impl Cursor {
             (first_left_space.unwrap_or(char_num as usize), last_space_index)
         } else if target_char.is_alphanumeric() || target_char == '_' {
             let last_alpha_index = char_iter
-                .take_while(|&(_, c)| c.is_alphanumeric() || c == '_')
+                .take_while(|&(_, c)| is_identifier(c))
                 .last()
                 .map_or(char_num as usize, |(i, _)| i);
             (first_alpha_space.map_or(char_num as usize, |x| x), last_alpha_index + 1)
         } else {
-            (char_num as usize, char_num as usize)
+            let last_symbol_index = char_iter
+                .take_while(|&(_, c)| is_symbol(c))
+                .last()
+                .map_or(char_num as usize, |(i, _)| i);
+            (first_left_symbol.map_or(char_num as usize, |x| x), last_symbol_index + 1)
         };
 
         self.select_start_pos = Some(Vector2D::new(start_x as u32, line_num));
@@ -334,4 +367,100 @@ fn snap_click_pos(mouse_x: f32, mouse_y: f32, window: &WindowState, text_data: &
     let new_y = new_y.min(text_data.line_count() - 1);
     let new_x = new_x.min(text_data.lines().nth(new_y as usize).unwrap().chars().count());
     (new_x, new_y)
+}
+
+fn find_start_of_chunk(line_num: u32, start_char: u32, text_data: &TextRope) -> Result<u32, u32> {
+    if start_char == 0 {
+        return Err(0);
+    }
+    let curr_line = text_data.lines().nth(line_num as usize).unwrap();
+
+    let mut first_alpha = None;
+    let mut last_space = None;
+    let mut first_symbol = None;
+    let mut len = 0;
+    for (i, c) in curr_line.chars().enumerate().take(start_char as usize) {
+        len = i;
+        match c {
+            c if is_identifier(c) => {
+                first_alpha = first_alpha.xor(last_space.map(|i| i + 1)).or(Some(i));
+                first_symbol = None;
+                last_space = None;
+            },
+            ' ' => {
+                last_space = Some(i);
+            },
+            _ => {
+                first_symbol = first_symbol.xor(last_space.map(|i| i + 1)).or(Some(i));
+                first_alpha = None;
+                last_space = None;
+            }
+        }
+    }
+
+    match (first_alpha, last_space, first_symbol) {
+        (Some(first_alpha_index), None, None) => Ok(first_alpha_index as u32),
+        (Some(first_alpha_index), Some(last_space_index), None) => {
+            if last_space_index != len {
+                Ok(first_alpha_index.max(last_space_index) as u32)
+            } else {
+                Ok(first_alpha_index as u32)
+            }
+        },
+        (None, None, Some(first_symbol_index)) => Ok(first_symbol_index as u32),
+        (None, Some(last_space_index), Some(first_symbol_index)) => {
+            if last_space_index != len {
+                Ok(first_symbol_index.max(last_space_index) as u32)
+            } else {
+                Ok(first_symbol_index as u32)
+            }
+        },
+        _ => Ok(0)
+    }
+}
+
+fn find_end_of_chunk(line_num: u32, start_char: u32, text_data: &TextRope) -> Result<u32, u32> {
+    let curr_line = text_data.lines().nth(line_num as usize).unwrap();
+    let mut char_iter = curr_line.chars().enumerate().skip(start_char as usize);
+    let Some((_, target_char)) = char_iter.by_ref().next() else {
+        return Err(start_char);
+    };
+
+    let end_index = match target_char {
+        ' ' => {
+            let last_space = char_iter
+                .by_ref()
+                .take_while(|&(_, c)| c == ' ')
+                .last()
+                .map(|(i, _)| i as u32);
+            let fall_back = last_space.map_or(start_char + 1, |i| i + 1);
+            match char_iter.next() {
+                Some((last_alpha, c)) if is_identifier(c) => char_iter.take_while(|&(_, c)| is_identifier(c))
+                    .last()
+                    .map_or(last_alpha as u32, |(i, _)| i as u32),
+                Some((last_space, ' ')) => last_space as u32 - 1, 
+                Some((last_symbol, _)) => char_iter.take_while(|&(_, c)| is_symbol(c))
+                    .last()
+                    .map_or(last_symbol as u32, |(i, _)| i as u32),
+                _ => fall_back,
+            }
+        },
+        c if is_identifier(c) => char_iter
+                    .take_while(|&(_, c)| is_identifier(c))
+                    .last()
+                    .map_or(start_char as u32, |(i, _)| i as u32),
+        _ => char_iter
+                    .take_while(|&(_, c)| is_symbol(c))
+                    .last()
+                    .map_or(start_char as u32, |(i, _)| i as u32),
+    };
+    Ok(end_index + 1)
+}
+
+fn is_identifier(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+fn is_symbol(c: char) -> bool {
+    !is_identifier(c) && c != ' '
 }

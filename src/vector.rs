@@ -12,6 +12,13 @@ impl Vector2D {
     }
 }
 
+impl Into<(u32, u32)> for Vector2D {
+    /// Returns (x, y)
+    fn into(self) -> (u32, u32) {
+        (self.x, self.y)
+    }
+}
+
 impl Ord for Vector2D {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.y.cmp(&other.y) {
