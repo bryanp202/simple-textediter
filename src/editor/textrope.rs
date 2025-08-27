@@ -163,7 +163,10 @@ impl TextRope {
 
         let shift_amt = len as isize;
         cursor.text_shift_x(-shift_amt, &self, window);
-        let (mut new_text_data, insert_text) = self._remove(index, len);        
+        let (mut new_text_data, insert_text) = self._remove(index, len);
+        if insert_text.len() == 1 && insert_text.as_bytes()[0] == b'\n' {
+            new_text_data.push_current_action();
+        }
 
         let cursor_end = cursor.pos();
         new_text_data.push_undo(
