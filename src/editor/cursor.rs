@@ -40,7 +40,7 @@ impl Cursor {
         }
     }
 
-    pub fn jump_to(&mut self, x: u32, y: u32, window: &mut WindowState, text_data: &TextRope) {
+    pub fn jump_to(&mut self, x: u32, y: u32, text_data: &TextRope, window: &mut WindowState) {
         self.snap_x = x;
         self.reset_select_pos();
         self.move_to(x, y, window, text_data)
@@ -53,7 +53,7 @@ impl Cursor {
     }
 
     pub fn shift_x(&mut self, amt: isize, text_data: &TextRope, window: &mut WindowState) {
-        let (new_x, new_y) = match (self.control_down, self.shift_down, self.select_start_pos) {
+        let (new_x, new_y) = match (self.control_down, self.shift_down, self.select_start_pos()) {
             (true, ..) => self.align_word_x(amt, text_data),
             (_, false, Some(select_start_pos)) => {
                 if amt >= 0 {
@@ -80,23 +80,17 @@ impl Cursor {
         }
     }
 
-    pub fn ret(&mut self, window: &mut WindowState, text_data: &TextRope) {
-        self.snap_x = 0;
-        self.select_start_pos = None;
-        self.move_to(0, self.pos.y + 1, window, text_data)
-    }
-
     pub fn reset_blink(&mut self) {
         self.blink_timer = Instant::now();
         self.blink_on = true;
     }
 
-    pub fn select_all(&mut self, window: &mut WindowState, text_data: &TextRope) {
+    pub fn select_all(&mut self, text_data: &TextRope, window: &mut WindowState) {
         self.select_start_pos = Some(Vector2D::new(0, 0));
         let last_line_index = text_data.line_count() - 1;
         let last_line = text_data.lines().nth(last_line_index).unwrap();
         let last_line_len = last_line.chars().count();
-        self.move_to(last_line_len as u32, last_line_index as u32, window, text_data);
+        self.move_to_no_adjust(last_line_len as u32, last_line_index as u32, window);
     }
 
     pub fn draw(&mut self, canvas: &mut Canvas<Window>, window: &WindowState) -> Result<(), Box<dyn Error>> {
@@ -154,7 +148,7 @@ impl Cursor {
                 self.select_start_pos = Some(Vector2D::new(0, line_num as u32));
                 self.move_to(line_len as u32, line_num as u32, window, text_data);
             },
-            _ => self.select_all(window, text_data),
+            _ => self.select_all(text_data, window),
         }
     }
 
@@ -199,6 +193,13 @@ impl Cursor {
         window.adjust_focus(x as usize, y as usize, text_data);
         self.pos.x = x;
         self.pos.y = y;
+        self.reset_blink()
+    }
+
+    fn move_to_no_adjust(&mut self, x: u32, y: u32, window: &mut WindowState) {
+        self.pos.x = x;
+        self.pos.y = y;
+        window.set_render_flag();
         self.reset_blink()
     }
 
@@ -397,19 +398,19 @@ fn find_end_of_chunk(line_num: u32, start_char: u32, text_data: &TextRope) -> Re
 
     let end_index = match target_char {
         ' ' => {
-            let last_space = char_iter
-                .clone()
-                .take_while(|&(_, c)| c == ' ')
-                .last()
-                .map_or(target_char_index, |(i, _)| i);
-            match char_iter.nth(last_space-target_char_index) {
-                Some((last_alpha, c)) if is_identifier(c) => char_iter.take_while(|&(_, c)| is_identifier(c))
+            let after_space_skip = char_iter
+                .by_ref()
+                .filter(|&(_, c)| c != ' ')
+                .next()
+                .map_or((target_char_index, None), |(i, c)| (i, Some(c)));
+            match after_space_skip {
+                (last_alpha, Some(c)) if is_identifier(c) => char_iter.take_while(|&(_, c)| is_identifier(c))
                     .last()
                     .map_or(last_alpha, |(i, _)| i),
-                Some((last_symbol, _)) => char_iter.take_while(|&(_, c)| is_symbol(c))
+                (last_symbol, Some(_)) => char_iter.take_while(|&(_, c)| is_symbol(c))
                     .last()
                     .map_or(last_symbol, |(i, _)| i),
-                _ => last_space,
+                (last_space_plus_one, None) => last_space_plus_one - 1,
             }
         },
         c if is_identifier(c) => char_iter
