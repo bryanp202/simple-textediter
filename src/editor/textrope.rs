@@ -194,6 +194,10 @@ impl TextRope {
         let cursor_pos = cursor.pos();
 
         let (mut new_text_data, removed_text) = self._remove(index, len);
+        if removed_text.len() == 1 && removed_text.as_bytes()[0] == b'\n' {
+            new_text_data.push_current_action();
+        }
+
         cursor.focus_on(&new_text_data, window);
         new_text_data.push_undo(
             Action::new_append(index, cursor_pos, removed_text),
