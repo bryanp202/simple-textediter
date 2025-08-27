@@ -1,7 +1,5 @@
 mod rope;
 
-use std::ops::Index;
-
 use rope::Rope;
 use crate::{editor::{cursor::Cursor, windowstate::WindowState}, vector::Vector2D};
 
@@ -12,6 +10,7 @@ pub struct TextRope {
     undo_stack: Vec<Action>,
     current_action: Option<Action>,
     redo_stack: Vec<Action>,
+    space_flag: bool,
 }
 
 impl TextRope {
@@ -42,7 +41,12 @@ impl TextRope {
             return self;
         }
         if insert_text.len() == 1 && insert_text.as_bytes()[0] == b' ' {
-            self.push_current_action();
+            if !self.space_flag {
+                self.push_current_action();
+                self.space_flag = true;
+            }
+        } else {
+            self.space_flag = false;
         }
         self.execute_new_insert(index, insert_text, cursor, window)
     }
@@ -124,6 +128,7 @@ impl Default for TextRope {
             undo_stack: Vec::new(),
             current_action: None,
             redo_stack: Vec::new(),
+            space_flag: false,
         }
     }
 }
@@ -196,6 +201,7 @@ impl TextRope {
             undo_stack: self.undo_stack,
             current_action: self.current_action,
             redo_stack: self.redo_stack,
+            space_flag: self.space_flag
         }, len)
     }
 
@@ -213,6 +219,7 @@ impl TextRope {
             undo_stack: self.undo_stack,
             current_action: self.current_action,
             redo_stack: self.redo_stack,
+            space_flag: self.space_flag
         }, removed_text)
     }
 
