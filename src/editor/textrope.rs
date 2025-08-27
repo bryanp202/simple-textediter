@@ -10,8 +10,10 @@ pub struct TextRope {
     undo_stack: Vec<Action>,
     current_action: Option<Action>,
     redo_stack: Vec<Action>,
-    space_flag: bool,
+    space_flag: SpaceCount,
 }
+
+enum SpaceCount { NONE, ONE, MANY }
 
 impl TextRope {
     pub fn new() -> Self {
@@ -41,13 +43,20 @@ impl TextRope {
             return self;
         }
         if insert_text.len() == 1 && insert_text.as_bytes()[0] == b' ' {
-            if !self.space_flag {
-                self.push_current_action();
-                self.space_flag = true;
+            match self.space_flag {
+                SpaceCount::NONE => {
+                    self.push_current_action();
+                    self.space_flag = SpaceCount::ONE;
+                },
+                SpaceCount::ONE => self.space_flag = SpaceCount::MANY,
+                _ => {},
             }
-        } else if self.space_flag {
-            self.space_flag = false;
-            self.push_current_action();
+        } else {
+            match self.space_flag {
+                SpaceCount::MANY => self.push_current_action(),
+                _ => {},
+            }
+            self.space_flag = SpaceCount::NONE;
         }
         self.execute_new_insert(index, insert_text, cursor, window)
     }
@@ -129,7 +138,7 @@ impl Default for TextRope {
             undo_stack: Vec::new(),
             current_action: None,
             redo_stack: Vec::new(),
-            space_flag: false,
+            space_flag: SpaceCount::NONE,
         }
     }
 }
