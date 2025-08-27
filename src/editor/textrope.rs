@@ -45,8 +45,9 @@ impl TextRope {
                 self.push_current_action();
                 self.space_flag = true;
             }
-        } else {
+        } else if self.space_flag {
             self.space_flag = false;
+            self.push_current_action();
         }
         self.execute_new_insert(index, insert_text, cursor, window)
     }
