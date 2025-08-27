@@ -1,114 +1,6 @@
 use std::fmt::Debug;
 use std::iter::Iterator;
 use std::cmp::Ordering;
-use std::usize;
-
-pub struct TextRope {
-    root: Rope,
-    len: usize,
-    line_count: usize,
-}
-
-impl TextRope {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn insert(self, index: usize, insert_text: &str) -> Self {
-        if insert_text.len() == 0 {
-            return self;
-        }
-        let char_count = insert_text.chars().count();
-        let line_count = Rope::get_line_count(insert_text);
-        let new_root = Self::insert_in_chunks(self.root, insert_text, index);
-
-        Self {
-            root: new_root,
-            len: self.len + char_count,
-            line_count: self.line_count + line_count,
-        }
-    }
-
-    pub fn append(self, insert_text: &str) -> Self {
-        let char_count = insert_text.chars().count();
-        let line_count = Rope::get_line_count(insert_text);
-        let new_root = Self::insert_in_chunks(self.root, insert_text, self.len);
-        Self {
-            root: new_root,
-            len: self.len + char_count,
-            line_count: self.line_count + line_count,
-        }
-    }
-
-    pub fn remove(self, index: usize, len: usize) -> Self {
-        let new_root = self.root.remove(index, len);
-        Self {
-            len: self.len - len,
-            line_count: new_root._line_count(),
-            root: new_root,
-        }
-    }
-
-    pub fn pop(self, len: usize) -> Self {
-        if len > self.len {
-            return self;
-        }
-        let new_root = self.root.remove(self.len - len, len);
-        Self {
-            len: self.len - len,
-            line_count: new_root._line_count(),
-            root: new_root,
-        }
-    }
-
-    pub fn get(&self, index: usize) -> Option<char> {
-        self.root.get(index)
-    }
-
-    pub fn get_line_index(&self, target_line: usize) -> usize {
-        self.root.line_start_index(target_line)
-    }
-
-    pub fn chars(&self) -> RopeIterator {
-        self.root.chars()
-    }
-
-    pub fn lines(&self) -> RopeLineIterator {
-        self.root.lines()
-    }
-
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    pub fn line_count(&self) -> usize {
-        self.line_count + 1
-    }
-}
-
-impl TextRope {
-    fn insert_in_chunks(mut root: Rope, insert_text: &str, mut index: usize) -> Rope {
-        let mut chars_iter = insert_text.chars();
-        loop {
-            let chunk = chars_iter.by_ref().take(Rope::MAX_NODE_INSERT_SIZE).collect::<String>();
-            if chunk.is_empty() {
-                return root;
-            }
-            root = root.insert(index, &chunk);
-            index += Rope::MAX_NODE_INSERT_SIZE;
-        }
-    }
-}
-
-impl Default for TextRope {
-    fn default() -> Self {
-        Self {
-            root: Rope::new(),
-            len: 0,
-            line_count: 0,
-        }
-    }
-}
 
 pub enum Rope {
     Branch {
@@ -122,7 +14,7 @@ pub enum Rope {
 }
 
 impl Rope {
-    const MAX_NODE_INSERT_SIZE: usize = 4096;
+    pub const MAX_NODE_INSERT_SIZE: usize = 4096;
     pub fn new() -> Self {
         Self::default()
     }
@@ -139,6 +31,7 @@ impl Rope {
         RopeLineIterator::new(self)
     }
 
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         match self {
             Rope::Branch { weight, right, .. } => weight + right.len(),
@@ -156,11 +49,13 @@ impl Rope {
             self._line_start_index(target_line - 1)
         }
     }
-    
+
+    #[allow(dead_code)]
     pub fn line_count(&self) -> usize {
         self._line_count() + 1
     }
 
+    #[allow(dead_code)]
     pub fn get(&self, target_index: usize) -> Option<char> {
         match self {
             Rope::Branch { weight, left, right, .. } => {
@@ -174,13 +69,21 @@ impl Rope {
         }
     }
 
-    pub fn insert(self, index: usize, insert_text: &str) -> Self {
-        self._insert(
-            index,
-            insert_text,
-            insert_text.chars().count(),
-            Self::get_line_count(insert_text),
-        )
+    pub fn insert(mut self, mut index: usize, insert_text: &str) -> Self {
+        let mut chars_iter = insert_text.chars();
+        loop {
+            let chunk = chars_iter.by_ref().take(Rope::MAX_NODE_INSERT_SIZE).collect::<String>();
+            if chunk.is_empty() {
+                return self;
+            }
+            self = self._insert(
+                index,
+                &chunk,
+                chunk.chars().count(),
+                Self::get_line_count(&chunk),
+            );
+            index += Rope::MAX_NODE_INSERT_SIZE;
+        }
     }
 
     pub fn remove(self, index: usize, len: usize) -> Self {

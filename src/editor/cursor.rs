@@ -1,6 +1,6 @@
 use sdl3::{pixels::Color, render::{Canvas, FPoint}, video::Window};
 
-use crate::{editor::{rope::TextRope, windowstate::WindowState}, vector::Vector2D};
+use crate::{editor::{textrope::TextRope, windowstate::WindowState}, vector::Vector2D};
 use std::{error::Error, time::{Duration, Instant}, u32, usize};
 
 const DEFAULT_BLINK_PERIOD: Duration = Duration::from_millis(500);
@@ -374,87 +374,54 @@ fn find_start_of_chunk(line_num: u32, start_char: u32, text_data: &TextRope) -> 
         return Err(0);
     }
     let curr_line = text_data.lines().nth(line_num as usize).unwrap();
-
-    let mut first_alpha = None;
-    let mut last_space = None;
-    let mut first_symbol = None;
-    let mut len = 0;
-    for (i, c) in curr_line.chars().enumerate().take(start_char as usize) {
-        len = i;
-        match c {
-            c if is_identifier(c) => {
-                first_alpha = first_alpha.xor(last_space.map(|i| i + 1)).or(Some(i));
-                first_symbol = None;
-                last_space = None;
-            },
-            ' ' => {
-                last_space = Some(i);
-            },
-            _ => {
-                first_symbol = first_symbol.xor(last_space.map(|i| i + 1)).or(Some(i));
-                first_alpha = None;
-                last_space = None;
+    let (first_alpha, first_symbol, _) = curr_line
+        .chars()
+        .enumerate()
+        .take(start_char as usize)
+        .fold((None, None, None), |(first_alpha, first_symbol, last_space), (i, c)| {
+            match c {
+                ' ' => (first_alpha, first_symbol, Some(i)),
+                c if is_identifier(c) => (first_alpha.filter(|_| last_space.is_none()).or(Some(i)), None, None),
+                _ => (None, first_symbol.filter(|_| last_space.is_none()).or(Some(i)), None),
             }
-        }
-    }
-
-    match (first_alpha, last_space, first_symbol) {
-        (Some(first_alpha_index), None, None) => Ok(first_alpha_index as u32),
-        (Some(first_alpha_index), Some(last_space_index), None) => {
-            if last_space_index != len {
-                Ok(first_alpha_index.max(last_space_index) as u32)
-            } else {
-                Ok(first_alpha_index as u32)
-            }
-        },
-        (None, None, Some(first_symbol_index)) => Ok(first_symbol_index as u32),
-        (None, Some(last_space_index), Some(first_symbol_index)) => {
-            if last_space_index != len {
-                Ok(first_symbol_index.max(last_space_index) as u32)
-            } else {
-                Ok(first_symbol_index as u32)
-            }
-        },
-        _ => Ok(0)
-    }
+        });
+    Ok(first_symbol.or(first_alpha).unwrap_or(0) as u32)
 }
 
 fn find_end_of_chunk(line_num: u32, start_char: u32, text_data: &TextRope) -> Result<u32, u32> {
     let curr_line = text_data.lines().nth(line_num as usize).unwrap();
     let mut char_iter = curr_line.chars().enumerate().skip(start_char as usize);
-    let Some((_, target_char)) = char_iter.by_ref().next() else {
+    let Some((target_char_index, target_char)) = char_iter.by_ref().next() else {
         return Err(start_char);
     };
 
     let end_index = match target_char {
         ' ' => {
             let last_space = char_iter
-                .by_ref()
+                .clone()
                 .take_while(|&(_, c)| c == ' ')
                 .last()
-                .map(|(i, _)| i as u32);
-            let fall_back = last_space.map_or(start_char + 1, |i| i + 1);
-            match char_iter.next() {
+                .map_or(target_char_index, |(i, _)| i);
+            match char_iter.nth(last_space-target_char_index) {
                 Some((last_alpha, c)) if is_identifier(c) => char_iter.take_while(|&(_, c)| is_identifier(c))
                     .last()
-                    .map_or(last_alpha as u32, |(i, _)| i as u32),
-                Some((last_space, ' ')) => last_space as u32 - 1, 
+                    .map_or(last_alpha, |(i, _)| i),
                 Some((last_symbol, _)) => char_iter.take_while(|&(_, c)| is_symbol(c))
                     .last()
-                    .map_or(last_symbol as u32, |(i, _)| i as u32),
-                _ => fall_back,
+                    .map_or(last_symbol, |(i, _)| i),
+                _ => last_space,
             }
         },
         c if is_identifier(c) => char_iter
                     .take_while(|&(_, c)| is_identifier(c))
                     .last()
-                    .map_or(start_char as u32, |(i, _)| i as u32),
+                    .map_or(target_char_index, |(i, _)| i),
         _ => char_iter
                     .take_while(|&(_, c)| is_symbol(c))
                     .last()
-                    .map_or(start_char as u32, |(i, _)| i as u32),
+                    .map_or(target_char_index, |(i, _)| i),
     };
-    Ok(end_index + 1)
+    Ok(end_index as u32 + 1)
 }
 
 fn is_identifier(c: char) -> bool {

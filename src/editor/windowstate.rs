@@ -1,4 +1,4 @@
-use crate::{editor::rope::TextRope, vector::Vector2D};
+use crate::{editor::textrope::TextRope, vector::Vector2D};
 
 pub struct WindowState {
     start_line: usize,

@@ -1,7 +1,7 @@
 mod draw;
 mod cursor;
 mod windowstate;
-pub mod rope;
+pub mod textrope;
 
 use windowstate::WindowState;
 use cursor::Cursor;
@@ -9,7 +9,7 @@ use std::{error::Error, ffi::CString, path::PathBuf, str::FromStr, sync::{Arc, M
 
 use sdl3::{dialog::{show_open_file_dialog, show_save_file_dialog, DialogFileFilter}, event::{Event, WindowEvent}, keyboard::Keycode, mouse::{MouseButton}, pixels::Color, render::{Canvas, TextureCreator, TextureQuery}, sys::{clipboard::SDL_SetClipboardText, keyboard::{SDL_GetModState, SDL_StartTextInput, SDL_StopTextInput}, keycode::{SDL_KMOD_CTRL, SDL_KMOD_NUM}}, ttf::{Font, FontStyle, Sdl3TtfContext}, video::{Window, WindowContext}, EventPump, VideoSubsystem};
 
-use crate::{editor::rope::TextRope, vector::Vector2D};
+use crate::{editor::textrope::TextRope, vector::Vector2D};
 
 const DEFAULT_FONT_PATH: &str = r"C:\Windows\Fonts\consola.ttf";
 const DEFAULT_FONT_SIZE: f32 = 24.0;
@@ -207,7 +207,13 @@ impl <'a> Editor<'a> {
                     let raw_text = CString::from_str(&selected_text)?;
                     unsafe {SDL_SetClipboardText(raw_text.as_ptr()); }
                     if let Some(select_pos) = self.cursor.select_start_pos() {
-                        Self::replace_selected_text(&mut self.text, &mut self.cursor, &mut self.window, select_pos, "");
+                        Self::replace_selected_text(
+                            &mut self.text,
+                            &mut self.cursor,
+                            &mut self.window,
+                            select_pos,
+                            String::from("")
+                        );
                     }
                 },
                 Event::KeyDown { keycode: Some(Keycode::V), ..}
@@ -217,10 +223,14 @@ impl <'a> Editor<'a> {
                     Self::insert_text(
                         &mut self.text,
                         &mut self.cursor,
-                        &normalized_clipboard_text,
+                        normalized_clipboard_text,
                         &mut self.window,
                     );
                 },
+                Event::KeyDown { keycode: Some(Keycode::Z), ..}
+                if unsafe {SDL_GetModState()} & SDL_KMOD_CTRL > 0 => Self::undo_action(&mut self.text, &mut self.cursor, &mut self.window),
+                Event::KeyDown { keycode: Some(Keycode::Y), ..}
+                if unsafe {SDL_GetModState()} & SDL_KMOD_CTRL > 0 => Self::redo_action(&mut self.text, &mut self.cursor, &mut self.window),
                 Event::KeyDown { keycode: Some(Keycode::D), ..}
                 if unsafe { SDL_GetModState() } & SDL_KMOD_CTRL > 0 => {
                     self.cursor.select_around_cursor(&self.text, &mut self.window);
@@ -290,7 +300,7 @@ impl <'a> Editor<'a> {
                 Event::TextInput { text: input_text, .. } => Self::insert_text(
                     &mut self.text,
                     &mut self.cursor,
-                    &input_text,
+                    input_text,
                     &mut self.window,
                 ),
                 Event::MouseButtonDown { mouse_btn: MouseButton::Left, x: click_x, y: click_y, clicks, .. } => Self::left_click(
@@ -435,7 +445,7 @@ impl <'a> Editor<'a> {
         let data = std::fs::read_to_string(file_path).unwrap_or_else(|_| String::new());
         
         let normalized_data = data.replace("\r\n", "\n");
-        self.text = TextRope::new().append(&normalized_data);
+        self.text = TextRope::new().append(normalized_data);
         self.cursor.jump_to(0, 0, &mut self.window, &self.text);
     }
 
@@ -449,7 +459,7 @@ impl <'a> Editor<'a> {
             let data = std::fs::read_to_string(file_path).unwrap_or_else(|_| String::new());
             
             let normalized_data = data.replace("\r\n", "\n");
-            self.text = TextRope::new().append(&normalized_data);
+            self.text = TextRope::new().append(normalized_data);
             self.cursor.jump_to(0, 0, &mut self.window, &self.text);
         }
     }
@@ -476,7 +486,7 @@ impl <'a> Editor<'a> {
         cursor: &mut Cursor,
         window: &mut WindowState,
         select_pos: Vector2D,
-        replace_text: &str,
+        replace_text: String,
     ) {
         let cursor_pos = cursor.pos();
         let select_start = Self::calculate_index_from_pos(text, select_pos);
@@ -486,17 +496,18 @@ impl <'a> Editor<'a> {
         } else {
             (current_index, cursor_pos)
         };
-        let len = select_start.abs_diff(current_index);
+        let replace_len = select_start.abs_diff(current_index);
+        let insert_len = replace_text.chars().count();
 
         let old_text = std::mem::take(text);
-        *text = old_text.remove(index, len).insert(index, replace_text);
+        *text = old_text.remove(index, replace_len).insert(index, replace_text);
         cursor.jump_to(jump_x, jump_y, window, text);
-        cursor.text_shift_x(replace_text.len() as isize, text, window);
+        cursor.text_shift_x(insert_len as isize, text, window);
     }
 
     fn delete_text(text: &mut TextRope, cursor: &mut Cursor, window: &mut WindowState) {
         if let Some(select_pos) =  cursor.select_start_pos() {
-            return Self::replace_selected_text(text, cursor, window, select_pos, "");
+            return Self::replace_selected_text(text, cursor, window, select_pos, String::from(""));
         }
 
         let Vector2D {x, y} = cursor.pos();
@@ -514,7 +525,7 @@ impl <'a> Editor<'a> {
 
     fn remove_text(text: &mut TextRope, cursor: &mut Cursor, amt: usize, window: &mut WindowState) {
         if let Some(select_pos) =  cursor.select_start_pos() {
-            return Self::replace_selected_text(text, cursor, window, select_pos, "");
+            return Self::replace_selected_text(text, cursor, window, select_pos, String::from(""));
         }
 
         let index = Self::calculate_index_from_pos(text, cursor.pos());
@@ -527,28 +538,27 @@ impl <'a> Editor<'a> {
         *text = old_text.remove(shift_index, amt);
     }
 
-    fn insert_text(text: &mut TextRope, cursor: &mut Cursor, text_chunk: &str, window: &mut WindowState) {
+    fn insert_text(text: &mut TextRope, cursor: &mut Cursor, text_chunk: String, window: &mut WindowState) {
         if let Some(select_pos) =  cursor.select_start_pos() {
             return Self::replace_selected_text(text, cursor, window, select_pos, text_chunk);
         }
 
+        let text_len = text_chunk.chars().count() as isize;
         let index = Self::calculate_index_from_pos(text, cursor.pos());
         let old_text = std::mem::take(text);
         *text = old_text.insert(index, text_chunk);
-
-        let text_len = text_chunk.chars().count() as isize;
 
         cursor.text_shift_x(text_len, text, window);
     }
 
     fn return_text(text: &mut TextRope, cursor: &mut Cursor, window: &mut WindowState) {
         if let Some(select_pos) =  cursor.select_start_pos() {
-            return Self::replace_selected_text(text, cursor, window, select_pos, "\n");
+            return Self::replace_selected_text(text, cursor, window, select_pos, String::from("\n"));
         }
         let index = Self::calculate_index_from_pos(text, cursor.pos());
 
         let old_text = std::mem::take(text);
-        *text = old_text.insert(index, "\n");
+        *text = old_text.insert(index, String::from("\n"));
         cursor.ret(window, text);
     }
 
@@ -556,7 +566,7 @@ impl <'a> Editor<'a> {
         let pos @ Vector2D {x, ..} = cursor.pos();
         let index = Self::calculate_index_from_pos(text, pos);
         let spaces = TAB_SPACE_COUNT - x % TAB_SPACE_COUNT;
-        let insert_spaces = &TAB_SPACE_STRING[..spaces as usize];
+        let insert_spaces = String::from(&TAB_SPACE_STRING[..spaces as usize]);
 
         if let Some(select_pos) =  cursor.select_start_pos() {
             return Self::replace_selected_text(text, cursor, window, select_pos, insert_spaces);
@@ -590,6 +600,20 @@ impl <'a> Editor<'a> {
 
     fn release_left_click(cursor: &mut Cursor) {
         cursor.left_click_release();
+    }
+
+    fn undo_action(text_data: &mut TextRope, cursor: &mut Cursor, window: &mut WindowState) {
+        let old_text = std::mem::take(text_data);
+        let (new_text, cursor_shift) = old_text.undo();
+        *text_data = new_text;
+        cursor.text_shift_x(-cursor_shift, text_data, window);
+    }
+
+    fn redo_action(text_data: &mut TextRope, cursor: &mut Cursor, window: &mut WindowState) {
+        let old_text = std::mem::take(text_data);
+        let (new_text, cursor_shift) = old_text.redo();
+        *text_data = new_text;
+        cursor.text_shift_x(-cursor_shift, text_data, window);
     }
 
     fn calculate_index_from_pos(text: &TextRope, pos: Vector2D) -> usize {
