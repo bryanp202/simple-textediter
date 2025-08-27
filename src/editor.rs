@@ -1,7 +1,7 @@
 mod draw;
 mod cursor;
 mod windowstate;
-pub mod textrope;
+mod textrope;
 
 use windowstate::WindowState;
 use cursor::Cursor;
@@ -220,7 +220,7 @@ impl <'a> Editor<'a> {
                 if unsafe { SDL_GetModState() } & SDL_KMOD_CTRL > 0 => {
                     let clipboard_text = self.context.video_subsystem.clipboard().clipboard_text()?;
                     let normalized_clipboard_text = clipboard_text.replace("\r\n", "\n");
-                    Self::insert_text(
+                    Self::paste_text(
                         &mut self.text,
                         &mut self.cursor,
                         normalized_clipboard_text,
@@ -546,6 +546,16 @@ impl <'a> Editor<'a> {
         *text = old_text.insert(index, text_chunk, cursor, window);
     }
 
+    fn paste_text(text: &mut TextRope, cursor: &mut Cursor, text_chunk: String, window: &mut WindowState) {
+        if let Some(select_pos) =  cursor.select_start_pos() {
+            return Self::replace_selected_text(text, cursor, window, select_pos, text_chunk);
+        }
+
+        let index = Self::calculate_index_from_pos(text, cursor.pos());
+        let old_text = std::mem::take(text);
+        *text = old_text.push_and_insert(index, text_chunk, cursor, window);
+    }
+
     fn return_text(text: &mut TextRope, cursor: &mut Cursor, window: &mut WindowState) {
         if let Some(select_pos) =  cursor.select_start_pos() {
             return Self::replace_selected_text(text, cursor, window, select_pos, String::from("\n"));
@@ -553,7 +563,7 @@ impl <'a> Editor<'a> {
         let index = Self::calculate_index_from_pos(text, cursor.pos());
 
         let old_text = std::mem::take(text);
-        *text = old_text.insert(index, String::from("\n"), cursor, window);
+        *text = old_text.push_and_insert(index, String::from("\n"), cursor, window);
     }
 
     fn tab_text(text: &mut TextRope, cursor: &mut Cursor, window: &mut WindowState) {
@@ -567,7 +577,7 @@ impl <'a> Editor<'a> {
         }
 
         let old_text = std::mem::take(text);
-        *text = old_text.insert(index, insert_spaces, cursor, window);
+        *text = old_text.push_and_insert(index, insert_spaces, cursor, window);
     }
 
     fn left_click(

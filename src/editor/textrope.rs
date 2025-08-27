@@ -1,5 +1,7 @@
 mod rope;
 
+use std::ops::Index;
+
 use rope::Rope;
 use crate::{editor::{cursor::Cursor, windowstate::WindowState}, vector::Vector2D};
 
@@ -8,6 +10,7 @@ pub struct TextRope {
     len: usize,
     line_count: usize,
     undo_stack: Vec<Action>,
+    current_action: Option<Action>,
     redo_stack: Vec<Action>,
 }
 
@@ -17,7 +20,7 @@ impl TextRope {
     }
 
     pub fn undo(mut self, cursor: &mut Cursor, window: &mut WindowState) -> Self {
-        let Some(undo_action) = self.undo_stack.pop() else {
+        let Some(undo_action) = self.current_action.take().or_else(|| self.undo_stack.pop()) else {
             return self;
         };
         let (mut new_rope, inverted_action) = undo_action.execute(self, cursor, window);
@@ -34,9 +37,12 @@ impl TextRope {
         new_rope
     }
 
-    pub fn insert(self, index: usize, insert_text: String, cursor: &mut Cursor, window: &mut WindowState) -> Self {
+    pub fn insert(mut self, index: usize, insert_text: String, cursor: &mut Cursor, window: &mut WindowState) -> Self {
         if insert_text.len() == 0 {
             return self;
+        }
+        if insert_text.len() == 1 && insert_text.as_bytes()[0] == b' ' {
+            self.push_current_action();
         }
         self.execute_new_insert(index, insert_text, cursor, window)
     }
@@ -65,6 +71,13 @@ impl TextRope {
 
     pub fn replace(self, index: usize, len: usize, replace_text: String, jump_pos: Vector2D, cursor: &mut Cursor, window: &mut WindowState) -> Self {
         self.execute_new_replace(index, len, replace_text, jump_pos, cursor, window)
+    }
+
+    pub fn push_and_insert(mut self, index: usize, insert_text: String, cursor: &mut Cursor, window: &mut WindowState) -> Self {
+        self.push_current_action();
+        let mut new_self = self.execute_new_insert(index, insert_text, cursor, window);
+        new_self.push_current_action();
+        new_self
     }
 
      #[allow(dead_code)]
@@ -109,6 +122,7 @@ impl Default for TextRope {
             len: 0,
             line_count: 0,
             undo_stack: Vec::new(),
+            current_action: None,
             redo_stack: Vec::new(),
         }
     }
@@ -122,7 +136,10 @@ impl TextRope {
         cursor.text_shift_x(len as isize, &new_text_data, window);
 
         let cursor_end = cursor.pos();
-        new_text_data.undo_stack.push(Action::new_remove(index, cursor_end, cursor_start, len));
+        new_text_data.push_undo(
+            Action::new_remove(index, cursor_end, cursor_start, len),
+            cursor.take_tampered_flag(),
+        );
         new_text_data
     }
 
@@ -134,7 +151,10 @@ impl TextRope {
         let (mut new_text_data, insert_text) = self._remove(index, len);        
 
         let cursor_end = cursor.pos();
-        new_text_data.undo_stack.push(Action::new_insert(index, cursor_end, cursor_start, insert_text));
+        new_text_data.push_undo(
+            Action::new_insert(index, cursor_end, cursor_start, insert_text),
+            cursor.take_tampered_flag(),
+        );
         new_text_data
     }
 
@@ -145,7 +165,10 @@ impl TextRope {
         cursor.text_shift_x(replace_len as isize, &new_text_data, window);
 
         let cursor_end = cursor.pos();
-        new_text_data.undo_stack.push(Action::new_replace(index, cursor_end, jump_pos, replace_len, removed_text));
+        new_text_data.push_undo(
+            Action::new_replace(index, cursor_end, jump_pos, replace_len, removed_text),
+            cursor.take_tampered_flag(),
+        );
         new_text_data
     }
 
@@ -153,8 +176,11 @@ impl TextRope {
         let cursor_pos = cursor.pos();
 
         let (mut new_text_data, removed_text) = self._remove(index, len);
-        cursor.jump_to(cursor_pos.x, cursor_pos.y, &new_text_data, window);
-        new_text_data.undo_stack.push(Action::new_append(index, cursor_pos, removed_text));
+        cursor.focus_on(&new_text_data, window);
+        new_text_data.push_undo(
+            Action::new_append(index, cursor_pos, removed_text),
+            cursor.take_tampered_flag(),
+        );
         new_text_data
     }
 
@@ -168,6 +194,7 @@ impl TextRope {
             len: self.len + len,
             line_count: self.line_count + line_count,
             undo_stack: self.undo_stack,
+            current_action: self.current_action,
             redo_stack: self.redo_stack,
         }, len)
     }
@@ -184,11 +211,93 @@ impl TextRope {
             line_count: new_root.line_count() - 1,
             root: new_root,
             undo_stack: self.undo_stack,
+            current_action: self.current_action,
             redo_stack: self.redo_stack,
         }, removed_text)
     }
+
+    /// Tamper flag must be set true if the cursor moved from the last index arrived from previous actions
+    fn push_undo(&mut self, new_undo_action: Action, tamper_flag: bool) {
+        self.redo_stack.clear();
+
+        let Some(current_action) = self.current_action.take() else {
+            self.current_action = Some(new_undo_action);
+            return;
+        };
+
+        if tamper_flag {
+            self.undo_stack.push(current_action);
+            self.current_action = Some(new_undo_action);
+            return;
+        }
+
+        match current_action {
+            Action::Append { index, cursor_pos, mut append_text } => {
+                match new_undo_action {
+                    Action::Append { cursor_pos, append_text: new_append_text, .. } => {
+                        append_text.push_str(&new_append_text);
+                        self.current_action = Some(Action::new_append(index, cursor_pos, append_text));
+                    },
+                    _ => {
+                        self.undo_stack.push(Action::new_append(index, cursor_pos, append_text));
+                        self.current_action = Some(new_undo_action);
+                    },
+                }
+            },
+            Action::Delete { index, cursor_pos, len } => {
+                match new_undo_action {
+                    Action::Delete { len: new_len, .. } => self.current_action = Some(Action::new_delete(index, cursor_pos, len + new_len)),
+                    _ => {
+                        self.undo_stack.push(current_action);
+                        self.current_action = Some(new_undo_action);
+                    },
+                }
+            },
+            Action::Replace { index, cursor_start, cursor_end, len, replace_text } => {
+                match new_undo_action {
+                    Action::Remove { cursor_start: new_cursor_start, len: new_len, .. } => {
+                        self.current_action = Some(Action::new_replace(index, new_cursor_start, cursor_end, len + new_len, replace_text));
+                    },
+                    _ => {
+                        self.undo_stack.push(Action::new_replace(index, cursor_start, cursor_end, len, replace_text));
+                        self.current_action = Some(new_undo_action);
+                    },
+                }
+            },
+            Action::Insert { index, cursor_start, cursor_end, insert_text }=> {
+                match new_undo_action {
+                    Action::Insert { index: new_index, cursor_start: new_cursor_start, insert_text: mut new_insert_text, .. } => {
+                        new_insert_text.push_str(&insert_text);
+                        self.current_action = Some(Action::new_insert(new_index, new_cursor_start, cursor_end, new_insert_text));
+                    },
+                    _ => {
+                        self.undo_stack.push(Action::new_insert(index, cursor_start, cursor_end, insert_text));
+                        self.current_action = Some(new_undo_action);
+                    },
+                }
+            },
+            Action::Remove { index, cursor_end, len, .. } => {
+                match new_undo_action {
+                    Action::Remove { cursor_start, len: new_len, .. } => {
+                        self.current_action = Some(Action::new_remove(index, cursor_start, cursor_end, len + new_len));
+                    },
+                    _ => {
+                        self.undo_stack.push(current_action);
+                        self.current_action = Some(new_undo_action);
+                    },
+                }
+            },
+        }
+    }
+
+    fn push_current_action(&mut self) {
+        if let Some(current_action) = self.current_action.take() {
+            self.undo_stack.push(current_action);
+        }
+    }
 }
 
+#[derive(Debug)]
 pub enum Action {
     Insert { index: usize, cursor_start: Vector2D, cursor_end: Vector2D, insert_text: String }, // Opposite of remove
     Remove { index: usize, cursor_start: Vector2D, cursor_end: Vector2D, len: usize }, // Oppositve of insert

@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Vector2D {
     pub x: u32,
     pub y: u32,

@@ -14,6 +14,7 @@ pub struct Cursor {
     blink_timer: Instant,
     color: Color,
     blink_on: bool,
+    tampered_flag: bool,
     left_down: bool,
     shift_down: bool,
     control_down: bool,
@@ -26,6 +27,12 @@ impl Cursor {
 
     pub fn pos(&self) -> Vector2D {
         self.pos
+    }
+
+    pub fn take_tampered_flag(&mut self) -> bool {
+        let flag = self.tampered_flag;
+        self.tampered_flag = false;
+        flag
     }
 
     pub fn select_start_pos(&self) -> Option<Vector2D> {
@@ -46,10 +53,16 @@ impl Cursor {
         self.move_to(x, y, window, text_data)
     }
 
+    pub fn focus_on(&mut self, text_data: &TextRope, window: &mut WindowState) {
+        let (x, y) = self.pos.into();
+        window.adjust_focus(x as usize, y as usize, text_data);
+        self.reset_blink();
+    }
+
     pub fn text_shift_x(&mut self, amt: isize, text_data: &TextRope, window: &mut WindowState) {
         let (new_x, new_y) = self.align_x(amt, text_data);
         self.select_start_pos = None;
-        self.move_to(new_x, new_y, window, text_data)
+        self.move_to_no_tamper_flag(new_x, new_y, window, text_data)
     }
 
     pub fn shift_x(&mut self, amt: isize, text_data: &TextRope, window: &mut WindowState) {
@@ -78,11 +91,6 @@ impl Cursor {
         if self.left_down {
             self.jump_to_mouse(click_x, click_y, text_data, window);
         }
-    }
-
-    pub fn reset_blink(&mut self) {
-        self.blink_timer = Instant::now();
-        self.blink_on = true;
     }
 
     pub fn select_all(&mut self, text_data: &TextRope, window: &mut WindowState) {
@@ -182,6 +190,11 @@ impl Cursor {
 }
 
 impl Cursor {
+    fn reset_blink(&mut self) {
+        self.blink_timer = Instant::now();
+        self.blink_on = true;
+    }
+
     fn jump_to_mouse(&mut self, mouse_x: f32, mouse_y: f32, text_data: &TextRope, window: &mut WindowState) {
         let (new_x, new_y) = snap_click_pos(mouse_x, mouse_y, window, text_data);
         self.snap_x = new_x as u32;
@@ -190,6 +203,7 @@ impl Cursor {
     }
 
     fn move_to(&mut self, x: u32, y: u32, window: &mut WindowState, text_data: &TextRope) {
+        self.tampered_flag = true;
         window.adjust_focus(x as usize, y as usize, text_data);
         self.pos.x = x;
         self.pos.y = y;
@@ -197,9 +211,16 @@ impl Cursor {
     }
 
     fn move_to_no_adjust(&mut self, x: u32, y: u32, window: &mut WindowState) {
+        self.tampered_flag = true;
         self.pos.x = x;
         self.pos.y = y;
         window.set_render_flag();
+        self.reset_blink()
+    }
+    fn move_to_no_tamper_flag(&mut self, x: u32, y: u32, window: &mut WindowState, text_data: &TextRope) {
+        window.adjust_focus(x as usize, y as usize, text_data);
+        self.pos.x = x;
+        self.pos.y = y;
         self.reset_blink()
     }
 
@@ -346,6 +367,7 @@ impl Default for Cursor {
             color: DEFAULT_CUSROR_COLOR,
             blink_timer: Instant::now(),
             blink_on: true,
+            tampered_flag: false,
             left_down: false,
             control_down: false,
             shift_down: false,
