@@ -12,17 +12,23 @@ pub struct WindowState {
 
     text_width: f32,
     text_height: f32,
+    window_width: u32,
+    window_height: u32,
+    pos: Vector2D,
 }
 
 impl WindowState {
     const SCROLL_FACTOR: usize = 8;
-    pub fn new(window_width: u32, window_height: u32, text_width: u32, text_height: u32, text_padding: u32, line_padding: u32) -> Self {
+    pub fn new(pos: Vector2D, window_width: u32, window_height: u32, text_width: u32, text_height: u32, text_padding: u32, line_padding: u32) -> Self {
         let mut new_window_state = Self {
+            pos,
             text_padding,
             line_padding,
+            window_width,
+            window_height,
             ..Default::default()
         };
-        new_window_state.resize(window_width, window_height, text_width, text_height);
+        new_window_state.resize_text(text_width, text_height);
         new_window_state
     }
 
@@ -36,17 +42,36 @@ impl WindowState {
         self.should_render = true;
     }
 
+    pub fn get_pos(&self) -> Vector2D {
+        self.pos
+    }
+
     /// Returns (width, height)
     pub fn get_text_dim(&self) -> (f32, f32) {
         (self.text_width, self.text_height)
     }
 
-    pub fn resize(&mut self, window_width: u32, window_height: u32, text_width: u32, text_height: u32) {
+    /// returns (width, height)
+    pub fn get_window_dim(&self) -> (u32, u32) {
+        (self.window_width, self.window_height)
+    }
+
+    pub fn pos(&self) -> Vector2D {
+        self.pos
+    }
+
+    #[allow(dead_code)]
+    pub fn resize(&mut self, window_width: i32, window_height: i32, ) {
+        self.window_height = window_height as u32;
+        self.window_width = window_width as u32;
+    }
+
+    pub fn resize_text(&mut self, text_width: u32, text_height: u32) {
         self.text_height = text_height as f32;
         self.text_width = text_width as f32;
 
-        let window_height = window_height.saturating_sub(self.text_padding);
-        let window_width = window_width.saturating_sub(self.text_padding);
+        let window_height = self.window_height.saturating_sub(self.text_padding);
+        let window_width = self.window_width.saturating_sub(self.text_padding);
         let text_height = text_height + self.line_padding;
         self.line_count = (window_height / text_height) as usize - 1;
         self.line_char_count = (window_width / text_width) as usize;
@@ -70,6 +95,13 @@ impl WindowState {
             y - window_first_line
         };
         Some(Vector2D {x: shifted_x, y: shifted_y })
+    }
+
+    pub fn is_in_screen_bound(&self, x: u32, y: u32) -> bool {
+        let (w, h) = self.get_window_dim();
+        let (start_x, start_y) = self.get_pos().into();
+
+        x >= start_x && x < (start_x + w) && y >= start_y && y < (start_y + h)
     }
 
     pub fn get_first_line(&self) -> usize {
@@ -138,6 +170,9 @@ impl Default for WindowState {
             should_render: false,
             text_height: 0.0,
             text_width: 0.0,
+            pos: Vector2D::default(),
+            window_height: 0,
+            window_width: 0,
         }
     }
 }

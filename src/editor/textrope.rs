@@ -177,7 +177,7 @@ impl TextRope {
     }
 
     fn execute_new_replace(self, index: usize, len: usize, replace_text: String, jump_pos: Vector2D, cursor: &mut Cursor, window: &mut WindowState) -> Self {
-        cursor.jump_to(jump_pos.x, jump_pos.y, &self, window);
+        cursor.text_jump_to(jump_pos.x, jump_pos.y, &self, window);
         let (new_text_data, removed_text) = self._remove(index, len);
         let (mut new_text_data, replace_len) = new_text_data._insert(index, &replace_text);
         cursor.text_shift_x(replace_len as isize, &new_text_data, window);
@@ -356,32 +356,32 @@ impl Action {
             Action::Insert { index, cursor_start, cursor_end, insert_text } => {
                 let (new_text_data, len) = text_data._insert(index, &insert_text);
                 let inverted_action = Action::new_remove(index, cursor_end, cursor_start, len);
-                cursor.jump_to(cursor_end.x, cursor_end.y, &new_text_data, window);
+                cursor.text_jump_to(cursor_end.x, cursor_end.y, &new_text_data, window);
                 (new_text_data, inverted_action)
             },
             Action::Remove { index, cursor_start, cursor_end, len } => {
                 let (new_text_data, insert_text) = text_data._remove(index, len);
                 let inverted_action = Action::new_insert(index, cursor_end, cursor_start, insert_text);
-                cursor.jump_to(cursor_end.x, cursor_end.y, &new_text_data, window);
+                cursor.text_jump_to(cursor_end.x, cursor_end.y, &new_text_data, window);
                 (new_text_data, inverted_action)
             },
             Action::Replace { index, cursor_start, cursor_end, len, replace_text } => {
                 let (new_text_data, removed_text) = text_data._remove(index, len);
                 let (new_text_data, len) = new_text_data._insert(index, &replace_text);
                 let inverted_action = Action::new_replace(index, cursor_end, cursor_start, len, removed_text);
-                cursor.jump_to(cursor_end.x, cursor_end.y, &new_text_data, window);
+                cursor.text_jump_to(cursor_end.x, cursor_end.y, &new_text_data, window);
                 (new_text_data, inverted_action)
             },
             Action::Delete { index, cursor_pos, len } => {
                 let (new_text_data, insert_text) = text_data._remove(index, len);
                 let inverted_action = Action::new_append(index, cursor_pos, insert_text);
-                cursor.jump_to(cursor_pos.x, cursor_pos.y, &new_text_data, window);
+                cursor.text_jump_to(cursor_pos.x, cursor_pos.y, &new_text_data, window);
                 (new_text_data, inverted_action)
             },
             Action::Append { index, cursor_pos, append_text } => {
                 let (new_text_data, len) = text_data._insert(index, &append_text);
                 let inverted_action = Action::new_delete(index, cursor_pos, len);
-                cursor.jump_to(cursor_pos.x, cursor_pos.y, &new_text_data, window);
+                cursor.text_jump_to(cursor_pos.x, cursor_pos.y, &new_text_data, window);
                 (new_text_data, inverted_action)
             },
         }

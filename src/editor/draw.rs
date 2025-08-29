@@ -8,25 +8,25 @@ use crate::editor::{windowstate::WindowState, TextAlignment};
 use crate::editor::cursor::Cursor;
 use crate::vector::Vector2D;
 
-pub fn text_target_aligned(alignment: &TextAlignment, padding: u32, start_y: u32, text_w: u32, text_h: u32, screen_w: u32) -> Rect {
+pub fn text_target_aligned(alignment: &TextAlignment, padding: u32, start_x: u32, start_y: u32, text_w: u32, text_h: u32, screen_w: u32) -> Rect {
     match alignment {
-        TextAlignment::LEFT => text_target_left(padding, start_y, text_w, text_h),
-        TextAlignment::CENTER => text_target_center(start_y, text_w, text_h, screen_w),
-        TextAlignment::RIGHT => text_target_right(padding, start_y, text_w, text_h, screen_w),
+        TextAlignment::LEFT => text_target_left(padding, start_x, start_y, text_w, text_h),
+        TextAlignment::CENTER => text_target_center(start_y, start_x, text_w, text_h, screen_w),
+        TextAlignment::RIGHT => text_target_right(padding, start_x, start_y, text_w, text_h, screen_w),
     }
 }
 
-fn text_target_left(padding: u32, start_y: u32, text_w: u32, text_h: u32) -> Rect {
-    Rect::new(padding as i32, start_y as i32, text_w as u32, text_h as u32)
+fn text_target_left(padding: u32, start_x: u32, start_y: u32, text_w: u32, text_h: u32) -> Rect {
+    Rect::new(padding as i32 + start_x as i32, start_y as i32, text_w as u32, text_h as u32)
 }
 
-fn text_target_center(start_y: u32, text_w: u32, text_h: u32, screen_w: u32) -> Rect {
-    let x = (screen_w as isize - text_w as isize) / 2;
+fn text_target_center(start_x: u32, start_y: u32, text_w: u32, text_h: u32, screen_w: u32) -> Rect {
+    let x = start_x as isize + (screen_w as isize - text_w as isize) / 2;
     Rect::new(x as i32, start_y as i32, text_w as u32, text_h as u32)
 }
 
-fn text_target_right(padding: u32, start_y: u32, text_w: u32, text_h: u32, screen_w: u32) -> Rect {
-    let x = screen_w as isize - text_w as isize - padding as isize;
+fn text_target_right(padding: u32, start_x: u32, start_y: u32, text_w: u32, text_h: u32, screen_w: u32) -> Rect {
+    let x = start_x as isize + screen_w as isize - text_w as isize - padding as isize;
     let text_w = text_w;
     Rect::new(x as i32, start_y as i32, text_w as u32, text_h as u32)
 }
@@ -70,14 +70,15 @@ pub fn selection_box(
         (0, line_len as u32)
     };
 
+    let window_pos = window.pos();
     let (text_pad, line_pad) = window.get_padding();
     let (char_width, char_height) = window.get_text_dim();
     let char_width = char_width as u32;
     let line_height = char_height as u32 + line_pad;
     let adjusted_char = current_line_start_char.saturating_sub(window.get_first_char() as u32);
     let adjusted_line = line_num.saturating_sub(window.get_first_line()) as u32;
-    let x = adjusted_char * char_width + text_pad;
-    let y   = adjusted_line * line_height + text_pad;
+    let x = adjusted_char * char_width + text_pad + window_pos.x;
+    let y   = adjusted_line * line_height + text_pad + window_pos.y;
 
     let chars = (current_line_end_char - current_line_start_char).min(line_len as u32);
     let width = (chars * char_width).max(4);

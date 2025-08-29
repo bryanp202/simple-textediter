@@ -1,10 +1,10 @@
 use sdl3::{pixels::Color, render::{Canvas, FPoint}, video::Window};
 
-use crate::{editor::{textrope::TextRope, windowstate::WindowState}, vector::Vector2D};
+use crate::{editor::{inputstate::InputState, textrope::TextRope, windowstate::WindowState}, vector::Vector2D};
 use std::{error::Error, time::{Duration, Instant}, u32, usize};
 
 const DEFAULT_BLINK_PERIOD: Duration = Duration::from_millis(500);
-const DEFAULT_CUSROR_COLOR: Color = super::DEFAULT_FONT_COLOR;
+const DEFAULT_CURSOR_COLOR: Color = crate::editor::textbox::DEFAULT_FONT_COLOR;
 
 pub struct Cursor {
     pos: Vector2D,
@@ -15,9 +15,6 @@ pub struct Cursor {
     color: Color,
     blink_on: bool,
     tampered_flag: bool,
-    left_down: bool,
-    shift_down: bool,
-    control_down: bool,
 }
 
 impl Cursor {
@@ -47,10 +44,16 @@ impl Cursor {
         }
     }
 
-    pub fn jump_to(&mut self, x: u32, y: u32, text_data: &TextRope, window: &mut WindowState) {
+    pub fn jump_to(&mut self, x: u32, y: u32, input: &InputState, text_data: &TextRope, window: &mut WindowState) {
         self.snap_x = x;
-        self.reset_select_pos();
+        self.reset_select_pos(input);
         self.move_to(x, y, window, text_data)
+    }
+
+    pub fn text_jump_to(&mut self, x: u32, y: u32, text_data: &TextRope, window: &mut WindowState) {
+        self.snap_x = x;
+        self.select_start_pos = None;
+        self.move_to_no_tamper_flag(x, y, window, text_data)
     }
 
     pub fn focus_on(&mut self, text_data: &TextRope, window: &mut WindowState) {
@@ -65,8 +68,8 @@ impl Cursor {
         self.move_to_no_tamper_flag(new_x, new_y, window, text_data)
     }
 
-    pub fn shift_x(&mut self, amt: isize, text_data: &TextRope, window: &mut WindowState) {
-        let (new_x, new_y) = match (self.control_down, self.shift_down, self.select_start_pos()) {
+    pub fn shift_x(&mut self, amt: isize, input: &InputState, text_data: &TextRope, window: &mut WindowState) {
+        let (new_x, new_y) = match (input.keyboard.ctrl_down(), input.keyboard.shift_down(), self.select_start_pos()) {
             (true, ..) => self.align_word_x(amt, text_data),
             (_, false, Some(select_start_pos)) => {
                 if amt >= 0 {
@@ -77,18 +80,18 @@ impl Cursor {
             }
             _ => self.align_x(amt, text_data),
         };
-        self.reset_select_pos();
+        self.reset_select_pos(input);
         self.move_to(new_x, new_y, window, text_data)
     }
 
-    pub fn shift_y(&mut self, amt: isize, text_data: &TextRope, window: &mut WindowState) {
+    pub fn shift_y(&mut self, amt: isize, input: &InputState, text_data: &TextRope, window: &mut WindowState) {
         let (new_x, new_y) = self.align_y(amt, text_data);
-        self.reset_select_pos();
+        self.reset_select_pos(input);
         self.move_to(new_x, new_y, window, text_data)
     }
 
-    pub fn mouse_move(&mut self, click_x: f32, click_y: f32, text_data: &TextRope, window: &mut WindowState) {
-        if self.left_down {
+    pub fn mouse_move(&mut self, click_x: f32, click_y: f32, input: &InputState, text_data: &TextRope, window: &mut WindowState) {
+        if input.mouse.left_down() {
             self.jump_to_mouse(click_x, click_y, text_data, window);
         }
     }
@@ -112,12 +115,13 @@ impl Cursor {
 
         canvas.set_draw_color(self.color);
         let (text_pad, line_pad) = window.get_padding();
+        let pos = window.pos();
         let text_pad = text_pad as f32;
         let line_pad = line_pad as f32;
         let (width, height) = window.get_text_dim();
 
-        let x = shifted_x as f32 * width + text_pad;
-        let y = shifted_y as f32 * (height + line_pad) + text_pad;
+        let x = shifted_x as f32 * width + text_pad + pos.x as f32;
+        let y = shifted_y as f32 * (height + line_pad) + text_pad + pos.y as f32;
 
         let start = FPoint::new(x, y);
         let end = FPoint::new(x, y + height);
@@ -126,21 +130,26 @@ impl Cursor {
         Ok(())
     }
 
-    pub fn update(&mut self) -> bool {
+    pub fn update(&mut self, window: &mut WindowState) {
         if self.blink_timer.elapsed() > self.blink_period {
             self.blink_on = !self.blink_on;
             self.blink_timer = Instant::now();
-            true
-        } else {
-            false
+            window.set_render_flag()
         }
+    }
+
+    pub fn home(&mut self, input: &InputState, text_data: &TextRope, window: &mut WindowState) {
+        let y = if input.keyboard.ctrl_down() {
+            0
+        } else {
+            self.pos().y
+        };
+        self.jump_to(0, y, input, text_data, window);
     }
 }
 
 impl Cursor {
     pub fn left_click_press(&mut self, click_x: f32, click_y: f32, clicks: u8, text_data: &TextRope, window: &mut WindowState) {
-        self.left_down = true;
-        
         match clicks {
             1 => {
                 self.jump_to_mouse(click_x, click_y, text_data, window);
@@ -158,29 +167,6 @@ impl Cursor {
             },
             _ => self.select_all(text_data, window),
         }
-    }
-
-    pub fn left_click_release(&mut self) {
-        self.left_down = false;
-    }
-
-    pub fn shift_press(&mut self) {
-        self.shift_down = true;
-        if let None = self.select_start_pos {
-            self.select_start_pos = Some(self.pos);
-        }
-    }
-
-    pub fn shift_release(&mut self) {
-        self.shift_down = false;
-    }
-
-    pub fn control_press(&mut self) {
-        self.control_down = true;
-    }
-
-    pub fn control_release(&mut self) {
-        self.control_down = false;
     }
 
     pub fn select_around_cursor(&mut self, text_data: &TextRope, window: &mut WindowState) {
@@ -224,8 +210,8 @@ impl Cursor {
         self.reset_blink()
     }
 
-    fn reset_select_pos(&mut self) {
-        if !self.shift_down {
+    fn reset_select_pos(&mut self, input: &InputState) {
+        if !input.keyboard.shift_down() {
             self.select_start_pos = None;
         } else {
             if let None = self.select_start_pos {
@@ -364,19 +350,21 @@ impl Default for Cursor {
             select_start_pos: None,
             snap_x: 0,
             blink_period: DEFAULT_BLINK_PERIOD,
-            color: DEFAULT_CUSROR_COLOR,
+            color: DEFAULT_CURSOR_COLOR,
             blink_timer: Instant::now(),
             blink_on: true,
             tampered_flag: false,
-            left_down: false,
-            control_down: false,
-            shift_down: false,
         }
     }
 }
 
 /// Returns (char, line)
 fn snap_click_pos(mouse_x: f32, mouse_y: f32, window: &WindowState, text_data: &TextRope) -> (usize, usize) {
+    let pos = window.pos();
+
+    let mouse_x = mouse_x - pos.x as f32;
+    let mouse_y = mouse_y - pos.y as f32;
+
     let (text_pad, line_pad) = window.get_padding();
     let text_pad = text_pad as f32;
     let line_pad = line_pad as f32;

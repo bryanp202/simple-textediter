@@ -23,14 +23,15 @@ pub fn run(starting_file: Option<String>) {
     const FRAME_DELTA: Duration = Duration::from_nanos(1_000_000_000 / FRAME_RATE);
     const INIT_WINDOW_WIDTH: u32 = 800;
     const INIT_WINDOW_HEIGHT: u32 = 600;
-    const MIN_WINDOW_WIDTH: i32 = 400;
-    const MIN_WINDOW_HEIGHT: i32 = 300;
+    const MIN_WINDOW_WIDTH: u32 = 400;
+    const MIN_WINDOW_HEIGHT: u32 = 300;
     const WINDOW_NAME: &str = "Text Editor";
 
     let sdl_context = sdl3::init().unwrap_or_else(|err| {
         eprintln!("Failed to initialize SDL3: {err}");
         process::exit(1);
     });
+
     let video_subsytem = sdl_context.video().unwrap_or_else(|err| {
         eprintln!("Failed to open video subsystem: {err}");
         process::exit(1);
@@ -40,7 +41,7 @@ pub fn run(starting_file: Option<String>) {
         process::exit(1);
     });
 
-    let window = video_subsytem
+    let mut window = video_subsytem
         .window(WINDOW_NAME, INIT_WINDOW_WIDTH, INIT_WINDOW_HEIGHT)
         .position_centered()
         .resizable()
@@ -50,14 +51,17 @@ pub fn run(starting_file: Option<String>) {
             eprintln!("Failed to create window \"{WINDOW_NAME}\": {}", err.to_string());
             process::exit(1);
         });
-    unsafe { SDL_SetWindowMinimumSize(window.raw(), MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT); }
+    window.set_minimum_size(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT).unwrap_or_else(|err| {
+        eprintln!("Failed to set minimum window size: {}", err.to_string());
+        process::exit(1);
+    });
 
-    let events = sdl_context.event_pump().unwrap_or_else(|err| {
+    let mut events = sdl_context.event_pump().unwrap_or_else(|err| {
         eprintln!("Failed to create event pump: {}", err.to_string());
         process::exit(1);
     });
 
-    let mut state = Editor::build(video_subsytem, ttf_context, events, window).unwrap_or_else(|err| {
+    let mut state = Editor::build(&video_subsytem, &ttf_context, &mut events, window).unwrap_or_else(|err| {
         eprintln!("Failed to create editor state: {}", err.to_string());
         process::exit(1);
     });
