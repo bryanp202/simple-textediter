@@ -23,7 +23,7 @@ pub fn run(starting_file: Option<String>) {
     const INIT_WINDOW_WIDTH: u32 = 800;
     const INIT_WINDOW_HEIGHT: u32 = 600;
     const MIN_WINDOW_WIDTH: u32 = 400;
-    const MIN_WINDOW_HEIGHT: u32 = 300;
+    const MIN_WINDOW_HEIGHT: u32 = 400;
     const WINDOW_NAME: &str = "Text Editor";
 
     let sdl_context = sdl3::init().unwrap_or_else(|err| {

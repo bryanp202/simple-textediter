@@ -40,6 +40,7 @@ impl <'a> TextBox<'a> {
         pos: Vector2D,
         window_width: u32,
         window_height: u32,
+        background_color: Option<Color>,
         video_subsystem: &'a VideoSubsystem,
         ttf_context: &'a Sdl3TtfContext,
     ) -> Result<Self, Box<dyn Error>> {
@@ -54,7 +55,7 @@ impl <'a> TextBox<'a> {
             text_width,
             text_height,
             DEFAULT_TEXT_PADDING,
-            DEFAULT_LINE_PADDING
+            DEFAULT_LINE_PADDING,
         );
 
         Ok(
@@ -66,7 +67,7 @@ impl <'a> TextBox<'a> {
                 font: default_font,
                 font_size: DEFAULT_FONT_SIZE,
 
-                background_color: DEFAULT_BACKGROUND_COLOR,
+                background_color: background_color.unwrap_or(DEFAULT_BACKGROUND_COLOR),
                 font_color: DEFAULT_FONT_COLOR,
                 font_select_color: DEFAULT_FONT_SELECT_COLOR,
 
@@ -107,10 +108,6 @@ impl <'a> TextBox<'a> {
             if input.keyboard.ctrl_down() => self.redo_action(),
             Event::KeyDown { keycode: Some(Keycode::D), .. }
             if input.keyboard.ctrl_down() => self.cursor.select_around_cursor(&self.text, &mut self.window),
-            Event::KeyDown { keycode: Some(Keycode::Equals), .. }
-            if input.keyboard.ctrl_down() => self.enlarge_text()?,
-            Event::KeyDown { keycode: Some(Keycode::Minus), .. }
-            if input.keyboard.ctrl_down() => self.shrink_text()?,
 
             // Mouse Events
             Event::MouseWheel { y, .. } => self.scroll(y),
@@ -139,6 +136,10 @@ impl <'a> TextBox<'a> {
 
     pub fn should_render(&mut self) -> bool {
         self.window.check_render()
+    }
+
+    pub fn resize(&mut self, pos: Vector2D, width: i32, height: i32) {
+        self.window.resize(pos, width, height);
     }
 
     pub fn draw(&mut self, canvas: &mut Canvas<Window>, texture_creator: &TextureCreator<WindowContext>) -> Result<(), Box<dyn Error>> {
@@ -210,8 +211,38 @@ impl <'a> TextBox<'a> {
         self.text.chars().collect()
     }
 
+    pub fn extract_text(&mut self) -> String {
+        let contents = self.export();
+        let len = self.text.len();
+        let old_text = std::mem::take(&mut self.text);
+        self.text = old_text.remove(0, len, &mut self.cursor, &mut self.window);
+        contents
+    }
+
     pub fn click_in_window(&self, x: f32, y: f32) -> bool {
         self.window.is_in_screen_bound(x.ceil() as u32, y.ceil() as u32)
+    }
+
+    pub fn height_of_one_line(&self) -> u32 {
+        let (_, text_height) = self.window.get_text_dim();
+        let (text_padding, line_padding) = self.window.get_padding();
+        text_height as u32 + line_padding + text_padding * 2
+    }
+
+    pub fn enlarge_text(&mut self) -> Result<(), Box<dyn Error>> {
+        self.font_size = (self.font_size + FONT_ZOOM_INCREMENT).min(MAX_FONT_SIZE);
+        self.font = load_font(&self.ttf_context, DEFAULT_FONT_PATH, self.font_size, DEFAULT_FONT_STYLE)?;
+        let (text_width, text_height) = self.font.size_of_char('|')?;
+        self.window.resize_text(text_width, text_height);
+        Ok(())
+    }
+
+    pub fn shrink_text(&mut self) -> Result<(), Box<dyn Error>> {
+        self.font_size = (self.font_size - FONT_ZOOM_INCREMENT).max(MIN_FONT_SIZE);
+        self.font = load_font(&self.ttf_context, DEFAULT_FONT_PATH, self.font_size, DEFAULT_FONT_STYLE)?;
+        let (text_width, text_height) = self.font.size_of_char('|')?;
+        self.window.resize_text(text_width, text_height);
+        Ok(())
     }
 }
 
@@ -293,27 +324,6 @@ impl <'a> TextBox<'a> {
 
         let old_text = std::mem::take(&mut self.text);
         self.text = old_text.push_and_insert(index, insert_spaces, &mut self.cursor, &mut self.window);
-    }
-
-    #[allow(dead_code)]
-    fn resize(&mut self, width: i32, height: i32) {
-        self.window.resize(width, height);
-    }
-
-    fn enlarge_text(&mut self) -> Result<(), Box<dyn Error>> {
-        self.font_size = (self.font_size + FONT_ZOOM_INCREMENT).min(MAX_FONT_SIZE);
-        self.font = load_font(&self.ttf_context, DEFAULT_FONT_PATH, self.font_size, DEFAULT_FONT_STYLE)?;
-        let (text_width, text_height) = self.font.size_of_char('|')?;
-        self.window.resize_text(text_width, text_height);
-        Ok(())
-    }
-
-    fn shrink_text(&mut self) -> Result<(), Box<dyn Error>> {
-        self.font_size = (self.font_size - FONT_ZOOM_INCREMENT).max(MIN_FONT_SIZE);
-        self.font = load_font(&self.ttf_context, DEFAULT_FONT_PATH, self.font_size, DEFAULT_FONT_STYLE)?;
-        let (text_width, text_height) = self.font.size_of_char('|')?;
-        self.window.resize_text(text_width, text_height);
-        Ok(())
     }
 
     fn copy_selected_text(&self) -> Result<(), Box<dyn Error>> {

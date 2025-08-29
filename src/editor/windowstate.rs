@@ -60,10 +60,11 @@ impl WindowState {
         self.pos
     }
 
-    #[allow(dead_code)]
-    pub fn resize(&mut self, window_width: i32, window_height: i32, ) {
+    pub fn resize(&mut self, pos: Vector2D, window_width: i32, window_height: i32, ) {
+        self.pos = pos;
         self.window_height = window_height as u32;
         self.window_width = window_width as u32;
+        self.resize_text(self.text_width as u32, self.text_height as u32);
     }
 
     pub fn resize_text(&mut self, text_width: u32, text_height: u32) {
@@ -73,7 +74,7 @@ impl WindowState {
         let window_height = self.window_height.saturating_sub(self.text_padding);
         let window_width = self.window_width.saturating_sub(self.text_padding);
         let text_height = text_height + self.line_padding;
-        self.line_count = (window_height / text_height) as usize - 1;
+        self.line_count = (window_height / text_height) as usize;
         self.line_char_count = (window_width / text_width) as usize;
         self.should_render = true;
     }

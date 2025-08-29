@@ -4,10 +4,11 @@ mod windowstate;
 mod textrope;
 mod inputstate;
 mod textbox;
+mod command;
 
 use std::{error::Error, path::PathBuf, sync::{Arc, Mutex}};
 
-use sdl3::{dialog::{show_open_file_dialog, show_save_file_dialog, DialogFileFilter}, event::{Event, WindowEvent}, get_error, keyboard::Keycode, mouse::MouseButton, render::{Canvas, TextureCreator}, sys::{keyboard::{SDL_GetModState, SDL_StartTextInput, SDL_StopTextInput}, keycode::SDL_KMOD_CTRL}, ttf::Sdl3TtfContext, video::{Window, WindowContext}, EventPump, VideoSubsystem};
+use sdl3::{dialog::{show_open_file_dialog, show_save_file_dialog, DialogFileFilter}, event::{Event, WindowEvent}, get_error, keyboard::Keycode, mouse::MouseButton, pixels::Color, render::{Canvas, TextureCreator}, sys::{keyboard::{SDL_GetModState, SDL_StartTextInput, SDL_StopTextInput}, keycode::SDL_KMOD_CTRL}, ttf::Sdl3TtfContext, video::{Window, WindowContext}, EventPump, VideoSubsystem};
 
 use crate::{editor::{inputstate::InputState}, vector::Vector2D};
 use crate::editor::textbox::TextBox;
@@ -71,6 +72,7 @@ impl <'a> Editor<'a> {
                 DEFAULT_TEXT_POS,
                 window_width,
                 window_height - 100,
+                None,
                 video_subsystem,
                 ttf_context
             )?,
@@ -78,6 +80,7 @@ impl <'a> Editor<'a> {
                 DEFAULT_CONSOLE_POS,
                 window_width,
                 window_height,
+                Some(Color::RGB(20, 20, 60)),
                 video_subsystem,
                 ttf_context
             )?,
@@ -99,9 +102,26 @@ impl <'a> Editor<'a> {
         for event in self.context.events.poll_iter() {
             match event {
                 // Window control
-                Event::Quit { .. } | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => self.quit = true,
-                Event::Window { win_event: WindowEvent::Resized(..), .. } |
-                Event::Window { win_event: WindowEvent::PixelSizeChanged(..), ..} => {},
+                Event::Quit { .. } => self.quit = true,
+                Event::KeyUp { keycode: Some(Keycode::W), .. } if self.input.keyboard.ctrl_down() => self.quit = true,
+                Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
+                    match self.active_component {
+                        Component::CONSOLE => {
+                            self.console.deactivate();
+                            self.text.activate();
+                            self.active_component = Component::TEXT;
+                        },
+                        Component::TEXT => {
+                            self.text.deactivate();
+                            self.console.activate();
+                            self.active_component = Component::CONSOLE;
+                        },
+                    }
+                },
+                Event::Window { win_event: WindowEvent::Resized(w_w, w_h), .. } |
+                Event::Window { win_event: WindowEvent::PixelSizeChanged(w_w, w_h), ..} => {
+                    Self::realign_textboxes(&mut self.text, &mut self.console, w_w, w_h);
+                },
 
                 // Keyboard state
                 Event::KeyDown { keycode: Some(Keycode::LShift), .. } |
@@ -112,6 +132,34 @@ impl <'a> Editor<'a> {
                 Event::KeyDown { keycode: Some(Keycode::RCtrl), .. } => self.input.keyboard.press_ctrl(),
                 Event::KeyUp { keycode: Some(Keycode::LCtrl), .. } |
                 Event::KeyUp { keycode: Some(Keycode::RCtrl), .. } => self.input.keyboard.release_ctrl(),
+                Event::KeyDown { keycode: Some(Keycode::Return), repeat, ..} => {
+                    match self.active_component {
+                        Component::CONSOLE => {
+                            if !repeat {
+                                let cmd = self.console.extract_text();
+                                self.text.set_text(cmd.to_uppercase());
+                            }
+                            continue;
+                        },
+                        _ => {},
+                    }
+                },
+
+                // Keyboard cmds
+                Event::KeyDown { keycode: Some(Keycode::Equals), .. }
+                if self.input.keyboard.ctrl_down() => {
+                    self.text.enlarge_text()?;
+                    self.console.enlarge_text()?;
+                    let (w_w, w_h) = self.context.canvas.window().size();
+                    Self::realign_textboxes(&mut self.text, &mut self.console, w_w as i32, w_h as i32);
+                }
+                Event::KeyDown { keycode: Some(Keycode::Minus), .. }
+                if self.input.keyboard.ctrl_down() => {
+                    self.text.shrink_text()?;
+                    self.console.shrink_text()?;
+                    let (w_w, w_h) = self.context.canvas.window().size();
+                    Self::realign_textboxes(&mut self.text, &mut self.console, w_w as i32, w_h as i32);
+                }
 
                 // Mouse state
                 Event::MouseButtonDown { mouse_btn: MouseButton::Left, x, y, .. } => {
@@ -120,13 +168,10 @@ impl <'a> Editor<'a> {
                         self.text.activate();
                         self.console.deactivate();
                         self.active_component = Component::TEXT;
-                    } else if self.console.click_in_window(x, y) {
+                    } else {
                         self.text.deactivate();
                         self.console.activate();
                         self.active_component = Component::CONSOLE;
-                    } else {
-                        self.text.deactivate();
-                        self.console.deactivate();
                     }
                 },
                 Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } => self.input.mouse.release_left(),
@@ -208,6 +253,8 @@ impl <'a> Editor<'a> {
 
     pub fn render(&mut self) -> Result<(), Box<dyn Error>> {
         if self.text.should_render() | self.console.should_render() {
+            self.context.canvas.set_draw_color(Color::BLACK);
+            self.context.canvas.clear();
             self.text.draw(&mut self.context.canvas, &self.context.texture_creator)?;
             self.console.draw(&mut self.context.canvas, &self.context.texture_creator)?;
             //self.draw_console()?;
@@ -297,7 +344,18 @@ impl <'a> Editor<'a> {
             err.into_inner()
         });
         while let Some(file_path) = save_file_paths.pop() {
-            _ = std::fs::write(file_path, self.text.export());
+            let data = self.text.export();
+            let normalized_data = data.replace("\n", "\r\n");
+            _ = std::fs::write(file_path, normalized_data);
         }
+    }
+}
+
+impl <'a> Editor<'a> {
+    fn realign_textboxes(text: &mut TextBox, console: &mut TextBox, w_w: i32, w_h: i32) {
+        let console_height = console.height_of_one_line() as i32;
+        let text_height = w_h  - console_height - 10;
+        text.resize(Vector2D::new(0, 0), w_w, text_height as i32);
+        console.resize(Vector2D::new(0, text_height as u32 + 10), w_w, console_height as i32);
     }
 }
