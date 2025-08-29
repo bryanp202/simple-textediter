@@ -58,7 +58,7 @@ impl <'a> Editor<'a> {
         let canvas = window.into_canvas();
         let texture_creator = canvas.texture_creator();
 
-        let new_editor = Self {
+        let mut new_editor = Self {
             context: EditorContext {
                 video_subsystem,
                 ttf_context,
@@ -86,6 +86,7 @@ impl <'a> Editor<'a> {
             open_file_paths: Arc::new(Mutex::new(Vec::new())),
             save_file_paths: Arc::new(Mutex::new(Vec::new())),
         };
+        new_editor.text.activate();
 
         Ok(new_editor)
     }
@@ -116,9 +117,16 @@ impl <'a> Editor<'a> {
                 Event::MouseButtonDown { mouse_btn: MouseButton::Left, x, y, .. } => {
                     self.input.mouse.press_left();
                     if self.text.click_in_window(x, y) {
+                        self.text.activate();
+                        self.console.deactivate();
                         self.active_component = Component::TEXT;
                     } else if self.console.click_in_window(x, y) {
+                        self.text.deactivate();
+                        self.console.activate();
                         self.active_component = Component::CONSOLE;
+                    } else {
+                        self.text.deactivate();
+                        self.console.deactivate();
                     }
                 },
                 Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } => self.input.mouse.release_left(),

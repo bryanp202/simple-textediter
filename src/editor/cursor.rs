@@ -104,8 +104,8 @@ impl Cursor {
         self.move_to_no_adjust(last_line_len as u32, last_line_index as u32, window);
     }
 
-    pub fn draw(&mut self, canvas: &mut Canvas<Window>, window: &WindowState) -> Result<(), Box<dyn Error>> {
-        if !self.blink_on {
+    pub fn draw(&mut self, active: bool, canvas: &mut Canvas<Window>, window: &WindowState) -> Result<(), Box<dyn Error>> {
+        if !active || !self.blink_on {
             return Ok(());
         }
 

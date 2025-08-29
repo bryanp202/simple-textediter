@@ -19,6 +19,7 @@ const TAB_SPACE_COUNT: u32 = 4;
 const TAB_SPACE_STRING: &str = "    ";
 
 pub struct TextBox<'a> {
+    active: bool,
     text: TextRope,
     window: WindowState,
     cursor: Cursor,
@@ -58,6 +59,7 @@ impl <'a> TextBox<'a> {
 
         Ok(
             Self {
+                active: false,
                 text: TextRope::new(),
                 window,
                 cursor: Cursor::new(),
@@ -84,8 +86,8 @@ impl <'a> TextBox<'a> {
             Event::KeyDown { keycode: Some(Keycode::Backspace), .. } => self.remove_text(1),
             Event::KeyDown { keycode: Some(Keycode::Return), .. } => self.return_text(),
             Event::KeyDown { keycode: Some(Keycode::Tab), .. } => self.tab_text(),
-            Event::KeyDown { keycode: Some(Keycode::Up), .. } => self.cursor.shift_y(1, &input, &self.text, &mut self.window),
-            Event::KeyDown { keycode: Some(Keycode::Down), .. } => self.cursor.shift_y(-1, &input, &self.text, &mut self.window),
+            Event::KeyDown { keycode: Some(Keycode::Up), .. } => self.cursor.shift_y(-1, &input, &self.text, &mut self.window),
+            Event::KeyDown { keycode: Some(Keycode::Down), .. } => self.cursor.shift_y(1, &input, &self.text, &mut self.window),
             Event::KeyDown { keycode: Some(Keycode::Left), .. } => self.cursor.shift_x(-1, &input, &self.text, &mut self.window),
             Event::KeyDown { keycode: Some(Keycode::Right), .. } => self.cursor.shift_x(1, &input, &self.text, &mut self.window),
             Event::TextInput { text, .. } => self.insert_text(text),
@@ -121,8 +123,18 @@ impl <'a> TextBox<'a> {
         Ok(())
     }
 
+    pub fn activate(&mut self) {
+        self.active = true;
+    }
+
+    pub fn deactivate(&mut self) {
+        self.active = false;
+    }
+
     pub fn update(&mut self) {
-        self.cursor.update(&mut self.window);
+        if self.active {
+            self.cursor.update(&mut self.window);
+        }
     }
 
     pub fn should_render(&mut self) -> bool {
@@ -182,7 +194,7 @@ impl <'a> TextBox<'a> {
 
             start_y += height + line_padding;
         }
-        self.cursor.draw(canvas, &self.window)?;
+        self.cursor.draw(self.active, canvas, &self.window)?;
 
         Ok(())
     }

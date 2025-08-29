@@ -7,7 +7,6 @@ use std::process;
 use std::time::{Duration, Instant};
 
 use sdl3::sys::mouse::{SDL_CreateSystemCursor, SDL_SetCursor, SDL_SystemCursor};
-use sdl3::sys::video::SDL_SetWindowMinimumSize;
 use sdl3::ttf;
 use crate::editor::Editor;
 
