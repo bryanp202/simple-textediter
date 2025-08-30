@@ -146,6 +146,12 @@ impl Cursor {
         };
         self.jump_to(0, y, input, text_data, window);
     }
+
+    pub fn snap_to_pos(&mut self, new_x: u32, new_y: u32, text_data: &TextRope, window: &mut WindowState) {
+        let new_y = new_y.min(text_data.line_count() as u32 - 1);
+        let new_x = new_x.min(text_data.lines().nth(new_y as usize).unwrap().chars().count() as u32);
+        self.move_to(new_x, new_y, window, text_data)
+    }
 }
 
 impl Cursor {
@@ -375,9 +381,7 @@ fn snap_click_pos(mouse_x: f32, mouse_y: f32, window: &WindowState, text_data: &
     let new_y = (mouse_y - text_pad) / (height + line_pad);
     let new_y = new_y.max(0.0) as usize + window.get_first_line();
 
-    let new_y = new_y.min(text_data.line_count() - 1);
-    let new_x = new_x.min(text_data.lines().nth(new_y as usize).unwrap().chars().count());
-    (new_x, new_y)
+    snap_pos(new_x, new_y, text_data)
 }
 
 fn find_start_of_chunk(line_num: u32, start_char: u32, text_data: &TextRope) -> Result<u32, u32> {
@@ -433,6 +437,13 @@ fn find_end_of_chunk(line_num: u32, start_char: u32, text_data: &TextRope) -> Re
                     .map_or(target_char_index, |(i, _)| i),
     };
     Ok(end_index as u32 + 1)
+}
+
+/// Returns (char, line)
+fn snap_pos(new_x: usize, new_y: usize, text_data: &TextRope) -> (usize, usize) {
+    let new_y = new_y.min(text_data.line_count() - 1);
+    let new_x = new_x.min(text_data.lines().nth(new_y as usize).unwrap().chars().count());
+    (new_x, new_y)
 }
 
 fn is_identifier(c: char) -> bool {

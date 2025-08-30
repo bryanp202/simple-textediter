@@ -1,10 +1,17 @@
 use std::path::PathBuf;
 
-mod parser;
+mod parse;
 
 pub enum Command {
+    ERROR,
     QUIT,
     WRITE(PathBuf),
     OPEN(PathBuf),
-    GOTO(usize),
+    JUMP(u32, u32),
+}
+
+impl Command {
+    pub fn new(cmd_str: String) -> Self {
+        parse::parse(cmd_str)
+    }
 }

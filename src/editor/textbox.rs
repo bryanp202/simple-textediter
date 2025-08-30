@@ -2,7 +2,7 @@ use std::error::Error;
 
 use sdl3::{event::Event, keyboard::Keycode, pixels::Color, render::{Canvas, FRect, TextureCreator, TextureQuery}, ttf::{Font, FontStyle, Sdl3TtfContext}, video::{Window, WindowContext}, VideoSubsystem};
 
-use crate::{editor::{cursor::Cursor, draw, inputstate::InputState, textrope::TextRope, windowstate::WindowState, TextAlignment}, vector::Vector2D};
+use crate::{editor::{command::Command, cursor::Cursor, draw, inputstate::InputState, textrope::TextRope, windowstate::WindowState, TextAlignment}, vector::Vector2D};
 
 const DEFAULT_FONT_PATH: &str = r"C:\Windows\Fonts\consola.ttf";
 const DEFAULT_FONT_SIZE: f32 = 24.0;
@@ -75,6 +75,15 @@ impl <'a> TextBox<'a> {
                 ttf_context,
             }
         )
+    }
+}
+
+impl <'a> TextBox<'a> {
+    pub fn execute_cmd(&mut self, cmd: Command) {
+        match cmd {
+            Command::JUMP(col, line) => self.cursor.snap_to_pos(col, line, &self.text, &mut self.window),
+            _ => {},
+        }
     }
 }
 

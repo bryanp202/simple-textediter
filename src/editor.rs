@@ -12,6 +12,7 @@ use sdl3::{dialog::{show_open_file_dialog, show_save_file_dialog, DialogFileFilt
 
 use crate::{editor::{inputstate::InputState}, vector::Vector2D};
 use crate::editor::textbox::TextBox;
+use crate::editor::command::Command;
 
 const DEFAULT_TEXT_POS: Vector2D = Vector2D { x: 0, y: 0};
 const DEFAULT_CONSOLE_POS: Vector2D = Vector2D {x: 0, y: 500};
@@ -27,17 +28,34 @@ pub enum Component {
     TEXT, CONSOLE,
 }
 
-pub struct Editor <'a> {
-    // State
+pub struct State<'a> {
     quit: bool,
     input: InputState,
     text: TextBox<'a>,
     console: TextBox<'a>,
     active_component: Component,
-
-    // Handlers
     open_file_paths: Arc<Mutex<Vec<PathBuf>>>,
     save_file_paths: Arc<Mutex<Vec<PathBuf>>>,
+}
+
+impl <'a> State<'a> {
+    fn switch_to_text(&mut self) {
+        self.console.deactivate();
+        self.text.activate();
+        self.active_component = Component::TEXT;
+    }
+
+    fn switch_to_console(&mut self) {
+        self.text.deactivate();
+        self.console.activate();
+        self.active_component = Component::CONSOLE;
+    }
+}
+
+pub struct Editor<'a> {
+    // State
+    state: State<'a>,
+    // Handles and such
     context: EditorContext<'a>,
 }
 
@@ -67,77 +85,70 @@ impl <'a> Editor<'a> {
                 canvas,
                 texture_creator,
             },
-            quit: false,
-            text: TextBox::build(
-                DEFAULT_TEXT_POS,
-                window_width,
-                window_height - 100,
-                None,
-                video_subsystem,
-                ttf_context
-            )?,
-            console: TextBox::build(
-                DEFAULT_CONSOLE_POS,
-                window_width,
-                window_height,
-                Some(Color::RGB(20, 20, 60)),
-                video_subsystem,
-                ttf_context
-            )?,
-            active_component: Component::TEXT,
-            input: InputState::default(),
-            open_file_paths: Arc::new(Mutex::new(Vec::new())),
-            save_file_paths: Arc::new(Mutex::new(Vec::new())),
+            state: State {
+                quit: false,
+                text: TextBox::build(
+                    DEFAULT_TEXT_POS,
+                    window_width,
+                    window_height - 100,
+                    None,
+                    video_subsystem,
+                    ttf_context
+                )?,
+                console: TextBox::build(
+                    DEFAULT_CONSOLE_POS,
+                    window_width,
+                    window_height,
+                    Some(Color::RGB(20, 20, 60)),
+                    video_subsystem,
+                    ttf_context
+                )?,
+                active_component: Component::TEXT,
+                input: InputState::default(),
+                open_file_paths: Arc::new(Mutex::new(Vec::new())),
+                save_file_paths: Arc::new(Mutex::new(Vec::new())),
+            },
         };
-        new_editor.text.activate();
+        new_editor.state.text.activate();
 
         Ok(new_editor)
     }
 
     pub fn should_quit(&self) -> bool {
-        self.quit
+        self.state.quit
     }
 
     pub fn handle_input(&mut self) -> Result<(), Box<dyn Error>> {
         for event in self.context.events.poll_iter() {
             match event {
                 // Window control
-                Event::Quit { .. } => self.quit = true,
-                Event::KeyUp { keycode: Some(Keycode::W), .. } if self.input.keyboard.ctrl_down() => self.quit = true,
+                Event::Quit { .. } => self.state.quit = true,
+                Event::KeyUp { keycode: Some(Keycode::W), .. } if self.state.input.keyboard.ctrl_down() => self.state.quit = true,
                 Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
-                    match self.active_component {
-                        Component::CONSOLE => {
-                            self.console.deactivate();
-                            self.text.activate();
-                            self.active_component = Component::TEXT;
-                        },
-                        Component::TEXT => {
-                            self.text.deactivate();
-                            self.console.activate();
-                            self.active_component = Component::CONSOLE;
-                        },
+                    match self.state.active_component {
+                        Component::CONSOLE => self.state.switch_to_text(),
+                        Component::TEXT => self.state.switch_to_console(),
                     }
                 },
                 Event::Window { win_event: WindowEvent::Resized(w_w, w_h), .. } |
                 Event::Window { win_event: WindowEvent::PixelSizeChanged(w_w, w_h), ..} => {
-                    Self::realign_textboxes(&mut self.text, &mut self.console, w_w, w_h);
+                    Self::realign_textboxes(&mut self.state.text, &mut self.state.console, w_w, w_h);
                 },
 
                 // Keyboard state
                 Event::KeyDown { keycode: Some(Keycode::LShift), .. } |
-                Event::KeyDown { keycode: Some(Keycode::RShift), .. } => self.input.keyboard.press_shift(),
+                Event::KeyDown { keycode: Some(Keycode::RShift), .. } => self.state.input.keyboard.press_shift(),
                 Event::KeyUp { keycode: Some(Keycode::LShift), .. } |
-                Event::KeyUp { keycode: Some(Keycode::RShift), .. } => self.input.keyboard.release_shift(),
+                Event::KeyUp { keycode: Some(Keycode::RShift), .. } => self.state.input.keyboard.release_shift(),
                 Event::KeyDown { keycode: Some(Keycode::LCtrl), .. } |
-                Event::KeyDown { keycode: Some(Keycode::RCtrl), .. } => self.input.keyboard.press_ctrl(),
+                Event::KeyDown { keycode: Some(Keycode::RCtrl), .. } => self.state.input.keyboard.press_ctrl(),
                 Event::KeyUp { keycode: Some(Keycode::LCtrl), .. } |
-                Event::KeyUp { keycode: Some(Keycode::RCtrl), .. } => self.input.keyboard.release_ctrl(),
+                Event::KeyUp { keycode: Some(Keycode::RCtrl), .. } => self.state.input.keyboard.release_ctrl(),
                 Event::KeyDown { keycode: Some(Keycode::Return), repeat, ..} => {
-                    match self.active_component {
+                    match self.state.active_component {
                         Component::CONSOLE => {
                             if !repeat {
-                                let cmd = self.console.extract_text();
-                                self.text.set_text(cmd.to_uppercase());
+                                Self::handle_cmd(&mut self.state);
                             }
                             continue;
                         },
@@ -147,34 +158,30 @@ impl <'a> Editor<'a> {
 
                 // Keyboard cmds
                 Event::KeyDown { keycode: Some(Keycode::Equals), .. }
-                if self.input.keyboard.ctrl_down() => {
-                    self.text.enlarge_text()?;
-                    self.console.enlarge_text()?;
+                if self.state.input.keyboard.ctrl_down() => {
+                    self.state.text.enlarge_text()?;
+                    self.state.console.enlarge_text()?;
                     let (w_w, w_h) = self.context.canvas.window().size();
-                    Self::realign_textboxes(&mut self.text, &mut self.console, w_w as i32, w_h as i32);
+                    Self::realign_textboxes(&mut self.state.text, &mut self.state.console, w_w as i32, w_h as i32);
                 }
                 Event::KeyDown { keycode: Some(Keycode::Minus), .. }
-                if self.input.keyboard.ctrl_down() => {
-                    self.text.shrink_text()?;
-                    self.console.shrink_text()?;
+                if self.state.input.keyboard.ctrl_down() => {
+                    self.state.text.shrink_text()?;
+                    self.state.console.shrink_text()?;
                     let (w_w, w_h) = self.context.canvas.window().size();
-                    Self::realign_textboxes(&mut self.text, &mut self.console, w_w as i32, w_h as i32);
+                    Self::realign_textboxes(&mut self.state.text, &mut self.state.console, w_w as i32, w_h as i32);
                 }
 
                 // Mouse state
                 Event::MouseButtonDown { mouse_btn: MouseButton::Left, x, y, .. } => {
-                    self.input.mouse.press_left();
-                    if self.text.click_in_window(x, y) {
-                        self.text.activate();
-                        self.console.deactivate();
-                        self.active_component = Component::TEXT;
+                    self.state.input.mouse.press_left();
+                    if self.state.text.click_in_window(x, y) {
+                        self.state.switch_to_text();
                     } else {
-                        self.text.deactivate();
-                        self.console.activate();
-                        self.active_component = Component::CONSOLE;
+                        self.state.switch_to_console();
                     }
                 },
-                Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } => self.input.mouse.release_left(),
+                Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } => self.state.input.mouse.release_left(),
 
                 // File io
                 Event::KeyDown { keycode: Some(Keycode::O), .. }
@@ -189,7 +196,7 @@ impl <'a> Editor<'a> {
                             pattern: "txt",
                         },
                     ];
-                    let file_path_ref = self.open_file_paths.clone();
+                    let file_path_ref = self.state.open_file_paths.clone();
                     show_open_file_dialog(
                         &filters,
                         None::<PathBuf>,
@@ -218,7 +225,7 @@ impl <'a> Editor<'a> {
                             pattern: "txt",
                         },
                     ];
-                    let file_path_ref = self.save_file_paths.clone();
+                    let file_path_ref = self.state.save_file_paths.clone();
                     show_save_file_dialog(
                         &filters,
                         None::<PathBuf>,
@@ -242,9 +249,9 @@ impl <'a> Editor<'a> {
 
                 _ => {},
             }
-            match self.active_component {
-                Component::TEXT => self.text.handle_input(event, &self.input)?,
-                Component::CONSOLE => self.console.handle_input(event, &self.input)?,
+            match self.state.active_component {
+                Component::TEXT => self.state.text.handle_input(event, &self.state.input)?,
+                Component::CONSOLE => self.state.console.handle_input(event, &self.state.input)?,
             }
         }
 
@@ -252,11 +259,11 @@ impl <'a> Editor<'a> {
     }
 
     pub fn render(&mut self) -> Result<(), Box<dyn Error>> {
-        if self.text.should_render() | self.console.should_render() {
+        if self.state.text.should_render() | self.state.console.should_render() {
             self.context.canvas.set_draw_color(Color::BLACK);
             self.context.canvas.clear();
-            self.text.draw(&mut self.context.canvas, &self.context.texture_creator)?;
-            self.console.draw(&mut self.context.canvas, &self.context.texture_creator)?;
+            self.state.text.draw(&mut self.context.canvas, &self.context.texture_creator)?;
+            self.state.console.draw(&mut self.context.canvas, &self.context.texture_creator)?;
             //self.draw_console()?;
             if !self.context.canvas.present() {
                 return Err(Box::new(get_error()));
@@ -266,11 +273,11 @@ impl <'a> Editor<'a> {
     }
 
     // fn draw_console(&mut self) -> Result<(), Box<dyn Error>> {
-    //     let Vector2D { x, y } = self.text.cursor_info();
+    //     let Vector2D { x, y } = self.state.text.cursor_info();
     //     let cursor_pos_str = if let None = self.cursor.select_start_pos() {
     //         format!("Ln: {}, Col {}", y + 1, x + 1)
     //     } else {
-    //         let selected_str_count = Self::get_selected_text(&self.cursor, &self.text).chars().count();
+    //         let selected_str_count = Self::get_selected_text(&self.cursor, &self.state.text).chars().count();
     //         format!("Ln: {}, Col {} ({} Selected)", y + 1, x + 1, selected_str_count)
     //     };
     //     let surface = self
@@ -303,8 +310,8 @@ impl <'a> Editor<'a> {
     // }
 
     pub fn update(&mut self) {
-        self.text.update();
-        self.console.update();
+        self.state.text.update();
+        self.state.console.update();
 
         self.check_open_files();
         self.check_save_files();
@@ -320,31 +327,31 @@ impl <'a> Editor<'a> {
         let data = std::fs::read_to_string(file_path).unwrap_or_else(|_| String::new());
         
         let normalized_data = data.replace("\r\n", "\n");
-        self.text.set_text(normalized_data);
+        self.state.text.set_text(normalized_data);
     }
 
     fn check_open_files(&mut self) {
-        let mut open_file_paths = self.open_file_paths.lock().unwrap_or_else(|mut err| {
+        let mut open_file_paths = self.state.open_file_paths.lock().unwrap_or_else(|mut err| {
             **err.get_mut() = vec![];
-            self.open_file_paths.clear_poison();
+            self.state.open_file_paths.clear_poison();
             err.into_inner()
         });
         while let Some(file_path) = open_file_paths.pop() {
             let data = std::fs::read_to_string(file_path).unwrap_or_else(|_| String::new());
             
             let normalized_data = data.replace("\r\n", "\n");
-            self.text.set_text(normalized_data);
+            self.state.text.set_text(normalized_data);
         }
     }
 
     fn check_save_files(&mut self) {
-        let mut save_file_paths = self.save_file_paths.lock().unwrap_or_else(|mut err| {
+        let mut save_file_paths = self.state.save_file_paths.lock().unwrap_or_else(|mut err| {
             **err.get_mut() = vec![];
-            self.open_file_paths.clear_poison();
+            self.state.open_file_paths.clear_poison();
             err.into_inner()
         });
         while let Some(file_path) = save_file_paths.pop() {
-            let data = self.text.export();
+            let data = self.state.text.export();
             let normalized_data = data.replace("\n", "\r\n");
             _ = std::fs::write(file_path, normalized_data);
         }
@@ -357,5 +364,33 @@ impl <'a> Editor<'a> {
         let text_height = w_h  - console_height - 10;
         text.resize(Vector2D::new(0, 0), w_w, text_height as i32);
         console.resize(Vector2D::new(0, text_height as u32 + 10), w_w, console_height as i32);
+    }
+
+    fn handle_cmd(state: &mut State) {
+        let cmd_str = state.console.extract_text();
+        let cmd = Command::new(cmd_str);
+
+        state.switch_to_text();
+        match cmd {
+            Command::JUMP(..) => state.text.execute_cmd(cmd),
+            Command::QUIT => state.quit = true,
+            Command::OPEN(file_path) => {
+                let mut open_file_paths = state.open_file_paths.lock().unwrap_or_else(|mut err| {
+                    **err.get_mut() = vec![];
+                    state.open_file_paths.clear_poison();
+                    err.into_inner()
+                });
+                open_file_paths.push(file_path);
+            },
+            Command::WRITE(file_path) => {
+                let mut open_file_paths = state.save_file_paths.lock().unwrap_or_else(|mut err| {
+                    **err.get_mut() = vec![];
+                    state.save_file_paths.clear_poison();
+                    err.into_inner()
+                });
+                open_file_paths.push(file_path);
+            },
+            Command::ERROR => {},
+        }
     }
 }
