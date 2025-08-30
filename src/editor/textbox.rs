@@ -214,6 +214,7 @@ impl <'a> TextBox<'a> {
         let total_len = old_text.len();
         let jump_pos = Vector2D::new(0, 0);
         self.text = old_text.replace(0, total_len, text_data, jump_pos, &mut self.cursor, &mut self.window);
+        self.cursor.snap_to_pos(0, 0, &self.text, &mut self.window);
     }
 
     pub fn export(&self) -> String {

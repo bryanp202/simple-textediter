@@ -1,4 +1,4 @@
-use std::{ops::Index, path::{self, PathBuf}, str::{FromStr, Split}};
+use std::str::{FromStr, Split};
 
 use crate::editor::command::Command;
 
@@ -18,6 +18,7 @@ pub fn parse_editor_cmd(cmd_str: &str) -> Command {
         Some("j") => parse_jump_cmd(words),
         Some("w") => parse_write_cmd(words),
         Some("o") => parse_open_cmd(words),
+        Some("r") => parse_run_cmd(words),
         _ => Command::ERROR,
     }
 }
@@ -65,6 +66,16 @@ fn parse_open_cmd(mut words: Split<char>) -> Command {
     let cmd = Command::OPEN(path_buf);
 
     check_rem(words, cmd)
+}
+
+fn parse_run_cmd(mut words: Split<char>) -> Command {
+    let Some(program) = words.next() else {
+        return Command::ERROR;
+    };
+
+    let args = words.map(|word| word.to_string()).collect::<Vec<String>>();
+
+    Command::RUN(program.to_string(), args)
 }
 
 /// Helpers

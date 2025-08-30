@@ -120,7 +120,7 @@ impl <'a> Editor<'a> {
 
     pub fn handle_input(&mut self) -> Result<(), Box<dyn Error>> {
         for event in self.context.events.poll_iter() {
-            match event {
+            match &event {
                 // Window control
                 Event::Quit { .. } => self.state.quit = true,
                 Event::KeyUp { keycode: Some(Keycode::W), .. } if self.state.input.keyboard.ctrl_down() => self.state.quit = true,
@@ -132,7 +132,7 @@ impl <'a> Editor<'a> {
                 },
                 Event::Window { win_event: WindowEvent::Resized(w_w, w_h), .. } |
                 Event::Window { win_event: WindowEvent::PixelSizeChanged(w_w, w_h), ..} => {
-                    Self::realign_textboxes(&mut self.state.text, &mut self.state.console, w_w, w_h);
+                    Self::realign_textboxes(&mut self.state.text, &mut self.state.console, *w_w, *w_h);
                 },
 
                 // Keyboard state
@@ -175,13 +175,14 @@ impl <'a> Editor<'a> {
                 // Mouse state
                 Event::MouseButtonDown { mouse_btn: MouseButton::Left, x, y, .. } => {
                     self.state.input.mouse.press_left();
-                    if self.state.text.click_in_window(x, y) {
+                    if self.state.text.click_in_window(*x, *y) {
                         self.state.switch_to_text();
                     } else {
                         self.state.switch_to_console();
                     }
                 },
                 Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } => self.state.input.mouse.release_left(),
+                Event::DropFile { filename, .. } => Self::open_file_from_path(&mut self.state, &filename),
 
                 // File io
                 Event::KeyDown { keycode: Some(Keycode::O), .. }
@@ -324,10 +325,7 @@ impl <'a> Editor<'a> {
 
 impl <'a> Editor<'a> {
     pub fn open_file(&mut self, file_path: String) {
-        let data = std::fs::read_to_string(file_path).unwrap_or_else(|_| String::new());
-        
-        let normalized_data = data.replace("\r\n", "\n");
-        self.state.text.set_text(normalized_data);
+        Self::open_file_from_path(&mut self.state, &file_path);
     }
 
     fn check_open_files(&mut self) {
@@ -366,6 +364,12 @@ impl <'a> Editor<'a> {
         console.resize(Vector2D::new(0, text_height as u32 + 10), w_w, console_height as i32);
     }
 
+    fn open_file_from_path(state: &mut State, file_path: &str) {
+        let data = std::fs::read_to_string(file_path).unwrap_or_else(|_| String::new());
+        let normalized_data = data.replace("\r\n", "\n");
+        state.text.set_text(normalized_data);
+    }
+
     fn handle_cmd(state: &mut State) {
         let cmd_str = state.console.extract_text();
         let cmd = Command::new(cmd_str);
@@ -389,6 +393,10 @@ impl <'a> Editor<'a> {
                     err.into_inner()
                 });
                 open_file_paths.push(file_path);
+            },
+            Command::RUN(program, args) => {
+                let _ = std::process::Command::new(program)
+                    .args(args).spawn();
             },
             Command::ERROR => {},
         }

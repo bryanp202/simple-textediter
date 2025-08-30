@@ -8,6 +8,7 @@ pub enum Command {
     WRITE(PathBuf),
     OPEN(PathBuf),
     JUMP(u32, u32),
+    RUN(String, Vec<String>),
 }
 
 impl Command {
