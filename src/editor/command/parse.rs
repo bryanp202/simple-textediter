@@ -3,10 +3,10 @@ use std::str::{FromStr, Split};
 use crate::editor::command::Command;
 
 pub fn parse(cmd_str: String) -> Command {
-    if let Some(':') = cmd_str.chars().nth(0) {
-        parse_editor_cmd(&cmd_str[1..])
-    } else {
-        Command::ERROR
+    match cmd_str.chars().nth(0) {
+        Some(':') => parse_editor_cmd(&cmd_str[1..]),
+        Some(_) => Command::ERROR,
+        None => Command::PREVIOUS,
     }
 }
 
@@ -19,6 +19,7 @@ pub fn parse_editor_cmd(cmd_str: &str) -> Command {
         Some("w") => parse_write_cmd(words),
         Some("o") => parse_open_cmd(words),
         Some("r") => parse_run_cmd(words),
+        Some("f") => parse_find_cmd(words),
         _ => Command::ERROR,
     }
 }
@@ -76,6 +77,13 @@ fn parse_run_cmd(mut words: Split<char>) -> Command {
     let args = words.map(|word| word.to_string()).collect::<Vec<String>>();
 
     Command::RUN(program.to_string(), args)
+}
+
+fn parse_find_cmd(mut words: Split<char>) -> Command {
+    let pattern = words.next().map(|slice| slice.to_string());
+    let cmd = Command::FIND(pattern);
+
+    check_rem(words, cmd)
 }
 
 /// Helpers

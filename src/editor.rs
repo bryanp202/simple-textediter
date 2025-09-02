@@ -10,7 +10,7 @@ use std::{error::Error, path::PathBuf, sync::{Arc, Mutex}};
 
 use sdl3::{dialog::{show_open_file_dialog, show_save_file_dialog, DialogFileFilter}, event::{Event, WindowEvent}, get_error, keyboard::Keycode, mouse::MouseButton, pixels::Color, render::{Canvas, TextureCreator}, sys::{keyboard::{SDL_GetModState, SDL_StartTextInput, SDL_StopTextInput}, keycode::SDL_KMOD_CTRL}, ttf::Sdl3TtfContext, video::{Window, WindowContext}, EventPump, VideoSubsystem};
 
-use crate::{editor::{inputstate::InputState}, vector::Vector2D};
+use crate::{editor::{command::CommandState, inputstate::InputState}, vector::Vector2D};
 use crate::editor::textbox::TextBox;
 use crate::editor::command::Command;
 
@@ -34,6 +34,7 @@ pub struct State<'a> {
     text: TextBox<'a>,
     console: TextBox<'a>,
     active_component: Component,
+    command_state: CommandState,
     open_file_paths: Arc<Mutex<Vec<PathBuf>>>,
     save_file_paths: Arc<Mutex<Vec<PathBuf>>>,
 }
@@ -105,6 +106,7 @@ impl <'a> Editor<'a> {
                 )?,
                 active_component: Component::TEXT,
                 input: InputState::default(),
+                command_state: CommandState::new(),
                 open_file_paths: Arc::new(Mutex::new(Vec::new())),
                 save_file_paths: Arc::new(Mutex::new(Vec::new())),
             },
@@ -144,12 +146,10 @@ impl <'a> Editor<'a> {
                 Event::KeyDown { keycode: Some(Keycode::RCtrl), .. } => self.state.input.keyboard.press_ctrl(),
                 Event::KeyUp { keycode: Some(Keycode::LCtrl), .. } |
                 Event::KeyUp { keycode: Some(Keycode::RCtrl), .. } => self.state.input.keyboard.release_ctrl(),
-                Event::KeyDown { keycode: Some(Keycode::Return), repeat, ..} => {
+                Event::KeyDown { keycode: Some(Keycode::Return), ..} => {
                     match self.state.active_component {
                         Component::CONSOLE => {
-                            if !repeat {
-                                Self::handle_cmd(&mut self.state);
-                            }
+                            Self::handle_cmd(&mut self.state);
                             continue;
                         },
                         _ => {},
@@ -265,50 +265,13 @@ impl <'a> Editor<'a> {
             self.context.canvas.clear();
             self.state.text.draw(&mut self.context.canvas, &self.context.texture_creator)?;
             self.state.console.draw(&mut self.context.canvas, &self.context.texture_creator)?;
-            //self.draw_console()?;
+            self.state.text.draw_console(&mut self.context.canvas, &self.context.texture_creator)?;
             if !self.context.canvas.present() {
                 return Err(Box::new(get_error()));
             }
         };
         Ok(())
     }
-
-    // fn draw_console(&mut self) -> Result<(), Box<dyn Error>> {
-    //     let Vector2D { x, y } = self.state.text.cursor_info();
-    //     let cursor_pos_str = if let None = self.cursor.select_start_pos() {
-    //         format!("Ln: {}, Col {}", y + 1, x + 1)
-    //     } else {
-    //         let selected_str_count = Self::get_selected_text(&self.cursor, &self.state.text).chars().count();
-    //         format!("Ln: {}, Col {} ({} Selected)", y + 1, x + 1, selected_str_count)
-    //     };
-    //     let surface = self
-    //             .font
-    //             .render(&cursor_pos_str)
-    //             .blended(self.font_color)
-    //             .map_err(|err| format!("On line: {:?}: {}", cursor_pos_str, err))?;
-    //     let texture = self
-    //         .context.texture_creater
-    //         .create_texture_from_surface(&surface)?;
-
-    //     let TextureQuery {width, .. } = texture.query();
-    //     let (_, height) = self.window.get_text_dim();
-    //     let height = height as u32;
-    //     let (text_padding, _) = self.window.get_padding();
-    //     let (screen_w, screen_h) = self.context.canvas.window().size();
-    //     let cursor_pos_data_y = screen_h - text_padding - height;
-    //     let target = draw::text_target_aligned(
-    //         &TextAlignment::RIGHT,
-    //         text_padding,
-    //         0,
-    //         cursor_pos_data_y,
-    //         width,
-    //         height,
-    //         screen_w,
-    //     );
-    //     self.context.canvas.copy(&texture, None, Some(target.into()))?;
-
-    //     Ok(())
-    // }
 
     pub fn update(&mut self) {
         self.state.text.update();
@@ -373,8 +336,8 @@ impl <'a> Editor<'a> {
     fn handle_cmd(state: &mut State) {
         let cmd_str = state.console.extract_text();
         let cmd = Command::new(cmd_str);
+        let clone_cmd = cmd.clone();
 
-        state.switch_to_text();
         match cmd {
             Command::JUMP(..) => state.text.execute_cmd(cmd),
             Command::QUIT => state.quit = true,
@@ -384,7 +347,7 @@ impl <'a> Editor<'a> {
                     state.open_file_paths.clear_poison();
                     err.into_inner()
                 });
-                open_file_paths.push(file_path);
+                open_file_paths.push(file_path.clone());
             },
             Command::WRITE(file_path) => {
                 let mut open_file_paths = state.save_file_paths.lock().unwrap_or_else(|mut err| {
@@ -392,13 +355,15 @@ impl <'a> Editor<'a> {
                     state.save_file_paths.clear_poison();
                     err.into_inner()
                 });
-                open_file_paths.push(file_path);
+                open_file_paths.push(file_path.clone());
             },
             Command::RUN(program, args) => {
                 let _ = std::process::Command::new(program)
                     .args(args).spawn();
             },
             Command::ERROR => {},
+            _ => state.command_state.execute_cmd(&mut state.text, cmd),
         }
+        state.command_state.set_prev(clone_cmd);
     }
 }

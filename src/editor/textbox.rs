@@ -209,6 +209,45 @@ impl <'a> TextBox<'a> {
         Ok(())
     }
 
+    pub fn draw_console(&mut self, canvas: &mut Canvas<Window>, texture_creator: &TextureCreator<WindowContext>) -> Result<(), Box<dyn Error>> {
+        let cursor_pos @ Vector2D { x, y } = self.cursor.pos();
+        let cursor_pos_str = if let Some(select_pos) = self.cursor.select_start_pos() {
+            let select_start = calculate_index_from_pos(&self.text, select_pos);
+            let current_index = calculate_index_from_pos(&self.text, cursor_pos);
+            let len = select_start.abs_diff(current_index);
+            let selected_str_count = len;
+            format!("Ln: {}, Col {} ({} Selected)", y + 1, x + 1, selected_str_count)
+        } else {
+            format!("Ln: {}, Col {}", y + 1, x + 1)
+        };
+        let surface = self
+                .font
+                .render(&cursor_pos_str)
+                .blended(self.font_color)
+                .map_err(|err| format!("On line: {:?}: {}", cursor_pos_str, err))?;
+        let texture = texture_creator
+            .create_texture_from_surface(&surface)?;
+
+        let TextureQuery {width, .. } = texture.query();
+        let (_, height) = self.window.get_text_dim();
+        let height = height as u32;
+        let (text_padding, _) = self.window.get_padding();
+        let (screen_w, screen_h) = canvas.window().size();
+        let cursor_pos_data_y = screen_h - text_padding - height;
+        let target = draw::text_target_aligned(
+            &TextAlignment::RIGHT,
+            text_padding,
+            0,
+            cursor_pos_data_y,
+            width,
+            height,
+            screen_w,
+        );
+        canvas.copy(&texture, None, Some(target.into()))?;
+
+        Ok(())
+    }
+
     pub fn set_text(&mut self, text_data: String) {
         let old_text = std::mem::take(&mut self.text);
         let total_len = old_text.len();
@@ -253,6 +292,46 @@ impl <'a> TextBox<'a> {
         let (text_width, text_height) = self.font.size_of_char('|')?;
         self.window.resize_text(text_width, text_height);
         Ok(())
+    }
+
+    pub fn find(&mut self, pattern: &str, start_index: usize) -> Option<usize> {
+        let pattern_len = pattern.chars().count();
+
+        let after_index_chars_iter = self.text.chars().skip(start_index);
+        let mut pattern_iter = pattern.chars();
+        for (i, c) in after_index_chars_iter.enumerate() {
+            let Some(pattern_c) = pattern_iter.next() else {
+                let (x, y) = self.text.get_line_char_pos(start_index + i - pattern_len).into();
+                self.cursor.snap_to_pos(x, y, &self.text, &mut self.window);
+                self.cursor.select_around_cursor(&self.text, &mut self.window);
+                return Some(start_index + i);
+            };
+            if pattern_c != c {
+                pattern_iter = pattern.chars();
+            }
+        }
+
+        let before_index_chars_iter = self.text.chars().take(start_index + pattern_len);
+        let mut pattern_iter = pattern.chars();
+        for (i, c) in before_index_chars_iter.enumerate() {
+            let Some(pattern_c) = pattern_iter.next() else {
+                let (x, y) = self.text.get_line_char_pos(i - pattern_len).into();
+                self.cursor.snap_to_pos(x, y, &self.text, &mut self.window);
+                self.cursor.select_around_cursor(&self.text, &mut self.window);
+                return Some(i);
+            };
+            if pattern_c != c {
+                pattern_iter = pattern.chars();
+            }
+        }
+    
+        return None;
+    }
+
+    pub fn cursor_index(&self) -> usize {
+        let (col, line) = self.cursor.pos().into();
+        let line_index = self.text.get_line_index(line as usize);
+        line_index + col as usize
     }
 }
 

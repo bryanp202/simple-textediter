@@ -94,6 +94,26 @@ impl Rope {
     pub fn get_line_count(text: &str) -> usize {
         text.chars().filter(|&c| c == '\n').count()
     }
+
+    /// Returns line, char
+    pub fn index_pos(&self, index: usize) -> (usize, usize) {
+        match self {
+            Rope::Leaf(text) => text.chars().take(index).fold((0, 0), |(line, col), c| {
+                match c {
+                    '\n' => (line + 1, 0),
+                    _ => (line, col + 1),
+                }
+            }),
+            Rope::Branch { weight, line, left, right, .. } => {
+                if index <= *weight {
+                    left.index_pos(index)
+                } else {
+                    let (right_line, right_col) = right.index_pos(index - *weight);
+                    (line + right_line, weight + right_col)
+                }
+            }
+        }
+    }
 }
 
 impl Rope {

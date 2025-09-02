@@ -150,6 +150,7 @@ impl Cursor {
     pub fn snap_to_pos(&mut self, new_x: u32, new_y: u32, text_data: &TextRope, window: &mut WindowState) {
         let new_y = new_y.min(text_data.line_count() as u32 - 1);
         let new_x = new_x.min(text_data.lines().nth(new_y as usize).unwrap().chars().count() as u32);
+        self.select_start_pos = None;
         self.move_to(new_x, new_y, window, text_data)
     }
 }

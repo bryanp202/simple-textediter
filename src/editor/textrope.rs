@@ -112,6 +112,12 @@ impl TextRope {
         self.root.line_start_index(target_line)
     }
 
+    // returns char, line
+    pub fn get_line_char_pos(&self, index: usize) -> Vector2D {
+        let (y, x) = self.root.index_pos(index);
+        Vector2D::new(x as u32, y as u32)
+    }
+
     pub fn chars(&self) -> rope::RopeIterator {
         self.root.chars()
     }
