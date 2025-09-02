@@ -109,7 +109,11 @@ impl Rope {
                     left.index_pos(index)
                 } else {
                     let (right_line, right_col) = right.index_pos(index - *weight);
-                    (line + right_line, weight + right_col)
+                    if right_line == 0 {
+                        (*line, weight + right_col)
+                    } else {
+                        (*line + right_line, right_col)
+                    }
                 }
             }
         }
