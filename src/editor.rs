@@ -182,7 +182,7 @@ impl <'a> Editor<'a> {
                     }
                 },
                 Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } => self.state.input.mouse.release_left(),
-                Event::DropFile { filename, .. } => Self::open_file_from_path(&mut self.state, &filename),
+                Event::DropFile { filename, .. } => Self::open_file_from_path(&mut self.state.text, &filename),
 
                 // File io
                 Event::KeyDown { keycode: Some(Keycode::O), .. }
@@ -287,8 +287,8 @@ impl <'a> Editor<'a> {
 }
 
 impl <'a> Editor<'a> {
-    pub fn open_file(&mut self, file_path: String) {
-        Self::open_file_from_path(&mut self.state, &file_path);
+    pub fn open_file(&mut self, file_path: &str) {
+        Self::open_file_from_path(&mut self.state.text, &file_path);
     }
 
     fn check_open_files(&mut self) {
@@ -298,10 +298,7 @@ impl <'a> Editor<'a> {
             err.into_inner()
         });
         while let Some(file_path) = open_file_paths.pop() {
-            let data = std::fs::read_to_string(file_path).unwrap_or_else(|_| String::new());
-            
-            let normalized_data = data.replace("\r\n", "\n");
-            self.state.text.set_text(normalized_data);
+            Self::open_file_from_path(&mut self.state.text, file_path.to_str().unwrap_or(""));
         }
     }
 
@@ -327,10 +324,10 @@ impl <'a> Editor<'a> {
         console.resize(Vector2D::new(0, text_height as u32 + 10), w_w, console_height as i32);
     }
 
-    fn open_file_from_path(state: &mut State, file_path: &str) {
+    fn open_file_from_path(text: &mut TextBox, file_path: &str) {
         let data = std::fs::read_to_string(file_path).unwrap_or_else(|_| String::new());
         let normalized_data = data.replace("\r\n", "\n");
-        state.text.set_text(normalized_data);
+        text.set_text(normalized_data);
     }
 
     fn handle_cmd(state: &mut State) {

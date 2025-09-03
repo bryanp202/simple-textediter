@@ -66,7 +66,7 @@ pub fn run(starting_file: Option<String>) {
     });
 
     if let Some(starting_file) = starting_file {
-        state.open_file(starting_file);
+        state.open_file(&starting_file);
     }
 
     _ = unsafe { SDL_SetCursor(SDL_CreateSystemCursor(SDL_SystemCursor::TEXT)) };
