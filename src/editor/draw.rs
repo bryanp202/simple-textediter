@@ -80,6 +80,11 @@ pub fn selection_box(
     let x = adjusted_char * char_width + text_pad + window_pos.x;
     let y   = adjusted_line * line_height + text_pad + window_pos.y;
 
+    let window_char_offset= window.get_first_char() as u32;
+    let current_line_start_char = current_line_start_char.max(window_char_offset);
+    let last_window_char = window_char_offset + window.chars() as u32;
+    let current_line_end_char = current_line_end_char.min(last_window_char);
+
     let chars = (current_line_end_char - current_line_start_char).min(line_len as u32);
     let width = (chars * char_width).max(4);
 

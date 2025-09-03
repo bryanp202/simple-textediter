@@ -182,6 +182,10 @@ impl <'a> Editor<'a> {
                     }
                 },
                 Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } => self.state.input.mouse.release_left(),
+                Event::MouseWheel { .. } => {
+                    self.state.text.handle_input(event, &self.state.input)?;
+                    continue;
+                },
                 Event::DropFile { filename, .. } => Self::open_file_from_path(&mut self.state.text, &filename),
 
                 // File io
