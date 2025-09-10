@@ -36,7 +36,7 @@ pub fn selection_box(
     cursor: &Cursor,
     window: &WindowState,
     line_num: usize,
-    line_len: usize,
+    focused_line_len: usize,
     select_color: Color,
 ) -> Result<(), Box<dyn Error>> {
     let Some(Vector2D { x: select_char, y: select_line}) = cursor.select_start_pos() else {
@@ -58,6 +58,7 @@ pub fn selection_box(
         return Ok(());
     }
 
+    let line_len = focused_line_len + window.get_first_char();
     let (current_line_start_char, current_line_end_char) = if line_num == start_line as usize {
         if start_line != end_line {
             (start_char, line_len as u32)
@@ -78,9 +79,9 @@ pub fn selection_box(
     let adjusted_char = current_line_start_char.saturating_sub(window.get_first_char() as u32);
     let adjusted_line = line_num.saturating_sub(window.get_first_line()) as u32;
     let x = adjusted_char * char_width + text_pad + window_pos.x;
-    let y   = adjusted_line * line_height + text_pad + window_pos.y;
+    let y = adjusted_line * line_height + text_pad + window_pos.y;
 
-    let window_char_offset= window.get_first_char() as u32;
+    let window_char_offset = window.get_first_char() as u32;
     let current_line_start_char = current_line_start_char.max(window_char_offset);
     let last_window_char = window_char_offset + window.chars() as u32;
     let current_line_end_char = current_line_end_char.min(last_window_char);
